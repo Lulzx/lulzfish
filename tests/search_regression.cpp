@@ -91,6 +91,13 @@ int main() {
             {"c3d5"},
         },
         {
+            "Use restrained English setup after Nf6",
+            "rnbqkb1r/pppp1ppp/5n2/4p3/2P5/2N5/PP1PPPPP/R1BQKBNR w KQkq - 2 3",
+            2,
+            {"e2e3"},
+            {"d2d4", "g1f3"},
+        },
+        {
             "Avoid a premature knight sortie",
             "rnbqkbnr/ppp2ppp/4p3/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 0 3",
             2,

@@ -35,6 +35,11 @@ static constexpr int ROOT_OPEN_GAME_NC6_BONUS = 90;
 static constexpr int ROOT_OPEN_GAME_PETROFF_PENALTY = 90;
 static constexpr int ROOT_ITALIAN_H3_BONUS = 140;
 static constexpr int ROOT_ITALIAN_EARLY_ND5_PENALTY = 90;
+static constexpr int ROOT_ENGLISH_E3_BONUS = 520;
+static constexpr int ROOT_ENGLISH_G3_BONUS = 45;
+static constexpr int ROOT_ENGLISH_IMMEDIATE_D4_PENALTY = 90;
+static constexpr int ROOT_ENGLISH_IMMEDIATE_E4_PENALTY = 120;
+static constexpr int ROOT_ENGLISH_NF3_PENALTY = 120;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -328,6 +333,42 @@ int italian_adjustment(const Position& pos, Move move) {
     return 0;
 }
 
+bool is_english_after_nf6(const Position& pos) {
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(C3) == Piece::WhiteKnight &&
+           pos.piece_on(E2) == Piece::WhitePawn &&
+           pos.piece_on(D2) == Piece::WhitePawn &&
+           pos.piece_on(G2) == Piece::WhitePawn &&
+           pos.piece_on(G1) == Piece::WhiteKnight &&
+           pos.piece_on(E5) == Piece::BlackPawn &&
+           pos.piece_on(F6) == Piece::BlackKnight &&
+           pos.fullmove_number() == 3;
+}
+
+int english_adjustment(const Position& pos, Move move) {
+    if (!is_english_after_nf6(pos)) return 0;
+
+    if (from_sq(move) == E2 && to_sq(move) == E3) {
+        return ROOT_ENGLISH_E3_BONUS;
+    }
+    if (from_sq(move) == G2 && to_sq(move) == G3) {
+        return ROOT_ENGLISH_G3_BONUS;
+    }
+    if (from_sq(move) == D2 && to_sq(move) == D4) {
+        return -ROOT_ENGLISH_IMMEDIATE_D4_PENALTY;
+    }
+    if (from_sq(move) == E2 && to_sq(move) == E4) {
+        return -ROOT_ENGLISH_IMMEDIATE_E4_PENALTY;
+    }
+    if (from_sq(move) == G1 && to_sq(move) == F3) {
+        return -ROOT_ENGLISH_NF3_PENALTY;
+    }
+
+    return 0;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
     if (mover == Piece::None) return 0;
@@ -337,6 +378,9 @@ int root_opening_adjustment(const Position& pos, Move move) {
 
     int italian_adj = italian_adjustment(pos, move);
     if (italian_adj != 0) return italian_adj;
+
+    int english_adj = english_adjustment(pos, move);
+    if (english_adj != 0) return english_adj;
 
     int slav_adjustment = slav_development_adjustment(pos, move);
     if (slav_adjustment != 0) return slav_adjustment;
