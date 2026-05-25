@@ -44,7 +44,7 @@ void clear_search_state() {
     }
 }
 
-int qsearch(Position& pos, int alpha, int beta, int checks_left = 1) {
+int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0) {
     bool in_check = pos.is_check();
 
     int stand_pat = lulzfish::eval::graph::evaluate(pos);
@@ -58,7 +58,7 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1) {
     generate_legal(pos, moves);
 
     if (moves.empty()) {
-        if (in_check) return -MATE;
+        if (in_check) return -MATE + ply;
         return stand_pat;
     }
 
@@ -101,7 +101,7 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1) {
             next_checks_left -= 1;
         }
 
-        int score = -qsearch(pos, -beta, -alpha, next_checks_left);
+        int score = -qsearch(pos, -beta, -alpha, next_checks_left, ply + 1);
         pos.unmake_move(m, undo);
 
         if (score > alpha) alpha = score;
@@ -111,9 +111,9 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1) {
     return alpha;
 }
 
-int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_left) {
+int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_left, int ply) {
     if (depth <= 0) {
-        return qsearch(pos, alpha, beta);
+        return qsearch(pos, alpha, beta, 1, ply);
     }
 
     bool in_check = pos.is_check();
@@ -136,7 +136,7 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
     if (!in_check && depth >= 3) {
         StateInfo undo;
         pos.make_null_move(undo);
-        int score = -alpha_beta(pos, depth - 1 - 2, -beta, -beta + 1, extensions_left); // R=2
+        int score = -alpha_beta(pos, depth - 1 - 2, -beta, -beta + 1, extensions_left, ply + 1); // R=2
         pos.unmake_null_move(undo);
         if (score >= beta) return beta;
     }
@@ -146,7 +146,7 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
 
     if (moves.empty()) {
         if (in_check) {
-            return -MATE + (10 - depth);
+            return -MATE + ply;
         }
         return 0;
     }
@@ -197,11 +197,11 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
             new_depth -= 1;
         }
 
-        int score = -alpha_beta(pos, new_depth, -beta, -alpha, child_extensions_left);
+        int score = -alpha_beta(pos, new_depth, -beta, -alpha, child_extensions_left, ply + 1);
 
         // If reduced search fails high, re-search at full depth
         if (new_depth < depth - 1 && score > alpha) {
-            score = -alpha_beta(pos, depth - 1, -beta, -alpha, extensions_left);
+            score = -alpha_beta(pos, depth - 1, -beta, -alpha, extensions_left, ply + 1);
         }
 
         pos.unmake_move(m, undo);
@@ -271,7 +271,7 @@ SearchResult search_root_depth(Position& pos, int depth) {
     for (const auto& entry : ordered) {
         Move move = entry.second;
         pos.make_move(move, undo);
-        int score = -alpha_beta(pos, child_depth, -beta, -alpha, 1);
+        int score = -alpha_beta(pos, child_depth, -beta, -alpha, 1, 1);
         pos.unmake_move(move, undo);
 
         if (score > best_score) {
