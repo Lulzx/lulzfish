@@ -84,6 +84,13 @@ int main() {
             {"g8f6"},
         },
         {
+            "Make luft before Italian knight jump",
+            "r1bq1rk1/pppp1pp1/2n2n1p/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 7",
+            2,
+            {"h2h3"},
+            {"c3d5"},
+        },
+        {
             "Avoid a premature knight sortie",
             "rnbqkbnr/ppp2ppp/4p3/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 0 3",
             2,

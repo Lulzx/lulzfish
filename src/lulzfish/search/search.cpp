@@ -33,6 +33,8 @@ static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_GRAB_PENALTY = 140;
 static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS = 35;
 static constexpr int ROOT_OPEN_GAME_NC6_BONUS = 90;
 static constexpr int ROOT_OPEN_GAME_PETROFF_PENALTY = 90;
+static constexpr int ROOT_ITALIAN_H3_BONUS = 140;
+static constexpr int ROOT_ITALIAN_EARLY_ND5_PENALTY = 90;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -296,12 +298,45 @@ int open_game_adjustment(const Position& pos, Move move) {
     return 0;
 }
 
+bool is_italian_h6_tension(const Position& pos) {
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(E4) == Piece::WhitePawn &&
+           pos.piece_on(D3) == Piece::WhitePawn &&
+           pos.piece_on(C3) == Piece::WhiteKnight &&
+           pos.piece_on(F3) == Piece::WhiteKnight &&
+           pos.piece_on(C4) == Piece::WhiteBishop &&
+           pos.piece_on(G1) == Piece::WhiteKing &&
+           pos.piece_on(H2) == Piece::WhitePawn &&
+           pos.piece_on(C5) == Piece::BlackBishop &&
+           pos.piece_on(C6) == Piece::BlackKnight &&
+           pos.piece_on(F6) == Piece::BlackKnight &&
+           pos.piece_on(G8) == Piece::BlackKing &&
+           pos.piece_on(H6) == Piece::BlackPawn;
+}
+
+int italian_adjustment(const Position& pos, Move move) {
+    if (!is_italian_h6_tension(pos)) return 0;
+
+    if (from_sq(move) == H2 && to_sq(move) == H3) {
+        return ROOT_ITALIAN_H3_BONUS;
+    }
+    if (from_sq(move) == C3 && to_sq(move) == D5) {
+        return -ROOT_ITALIAN_EARLY_ND5_PENALTY;
+    }
+
+    return 0;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
     if (mover == Piece::None) return 0;
 
     int open_game_adj = open_game_adjustment(pos, move);
     if (open_game_adj != 0) return open_game_adj;
+
+    int italian_adj = italian_adjustment(pos, move);
+    if (italian_adj != 0) return italian_adj;
 
     int slav_adjustment = slav_development_adjustment(pos, move);
     if (slav_adjustment != 0) return slav_adjustment;
