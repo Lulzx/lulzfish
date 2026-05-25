@@ -105,6 +105,13 @@ int main() {
             {"b8c6", "d6d5"},
         },
         {
+            "Develop before exchanging in Slav structures",
+            "rnbqkbnr/pp2pppp/2p5/3p4/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3",
+            2,
+            {"g1f3", "e2e3", "c1f4"},
+            {"c4d5", "d1a4", "b1d2", "b1c3"},
+        },
+        {
             "Take the hanging queen",
             "4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1",
             2,

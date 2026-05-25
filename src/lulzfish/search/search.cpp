@@ -21,6 +21,8 @@ static constexpr int ROOT_CENTER_PAWN_BONUS = 35;
 static constexpr int ROOT_WING_PAWN_PENALTY = 30;
 static constexpr int ROOT_BLOCKED_C_PAWN_PENALTY = 70;
 static constexpr int ROOT_PIRC_E_BREAK_BONUS = 110;
+static constexpr int ROOT_EARLY_SLAV_EXCHANGE_PENALTY = 50;
+static constexpr int ROOT_SLAV_DEVELOPMENT_BONUS = 45;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -95,9 +97,39 @@ bool is_pirc_e_break(const Position& pos, Move move) {
            pos.piece_on(C3) == Piece::WhiteKnight;
 }
 
+bool is_initial_slav_structure(const Position& pos) {
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(D4) == Piece::WhitePawn &&
+           pos.piece_on(C6) == Piece::BlackPawn &&
+           pos.piece_on(D5) == Piece::BlackPawn &&
+           pos.piece_on(G1) == Piece::WhiteKnight &&
+           pos.piece_on(F1) == Piece::WhiteBishop;
+}
+
+int slav_development_adjustment(const Position& pos, Move move) {
+    if (!is_initial_slav_structure(pos)) return 0;
+
+    if (from_sq(move) == G1 && to_sq(move) == F3) return ROOT_SLAV_DEVELOPMENT_BONUS;
+    if (from_sq(move) == E2 && to_sq(move) == E3) return ROOT_SLAV_DEVELOPMENT_BONUS;
+    if (from_sq(move) == C1 && to_sq(move) == F4) return ROOT_SLAV_DEVELOPMENT_BONUS;
+
+    if (from_sq(move) == C4 && to_sq(move) == D5) return -ROOT_EARLY_SLAV_EXCHANGE_PENALTY;
+    if (from_sq(move) == B1 && (to_sq(move) == C3 || to_sq(move) == D2)) {
+        return -ROOT_SLAV_DEVELOPMENT_BONUS;
+    }
+    if (from_sq(move) == D1) return -ROOT_EARLY_SLAV_EXCHANGE_PENALTY;
+
+    return 0;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
     if (mover == Piece::None) return 0;
+
+    int slav_adjustment = slav_development_adjustment(pos, move);
+    if (slav_adjustment != 0) return slav_adjustment;
 
     if (blocks_c_pawn_counterplay(pos, move)) {
         return -ROOT_BLOCKED_C_PAWN_PENALTY;
