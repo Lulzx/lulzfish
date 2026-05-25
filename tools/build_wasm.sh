@@ -15,6 +15,10 @@ mkdir -p "${OUT_DIR}"
 cp "${ROOT_DIR}/web/wasm/index.html" "${OUT_DIR}/index.html"
 cp "${ROOT_DIR}/web/wasm/app.js" "${OUT_DIR}/app.js"
 cp "${ROOT_DIR}/web/wasm/worker.js" "${OUT_DIR}/worker.js"
+if [ -d "${ROOT_DIR}/web/wasm/benchmarks" ]; then
+  rm -rf "${OUT_DIR}/benchmarks"
+  cp -R "${ROOT_DIR}/web/wasm/benchmarks" "${OUT_DIR}/benchmarks"
+fi
 
 "${EMXX}" \
   -std=c++23 \

@@ -133,6 +133,27 @@
       align-items: end;
     }
 
+    .bench-link {
+      grid-column: 1 / -1;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: rgba(255,255,255,0.58);
+      min-height: 42px;
+      display: grid;
+      place-items: center;
+      text-decoration: none;
+      font-weight: 680;
+      transition: transform 140ms ease, border-color 140ms ease;
+    }
+
+    .bench-link:hover {
+      border-color: var(--accent);
+    }
+
+    .bench-link:active {
+      transform: translateY(1px) scale(0.99);
+    }
+
     .field {
       display: grid;
       gap: 6px;
@@ -285,6 +306,7 @@
       <div class="actions">
         <button id="newGame" class="button">New game</button>
         <button id="flip" class="button secondary">Flip board</button>
+        <a class="bench-link" href="./benchmarks/">Benchmark results</a>
       </div>
 
       <div id="promotion" class="promotion">
