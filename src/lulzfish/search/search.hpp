@@ -23,6 +23,7 @@ struct SearchResult {
 
 int search(Position& pos, SearchLimits limits);
 SearchResult search_root(Position& pos, SearchLimits limits);
+void clear_search_state();
 
 // Basic self-play for data recording (foundation for future training of controller or graph net)
 void self_play_game(int num_games = 1, int max_depth = 6, int max_moves = 80);

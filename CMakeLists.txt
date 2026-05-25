@@ -126,6 +126,16 @@ if(LULZFISH_BUILD_TESTS)
     )
     target_compile_features(perft_test PRIVATE cxx_std_23)
 
+    add_executable(search_regression
+        tests/search_regression.cpp
+        ${LULZFISH_CORE_SOURCES}
+    )
+    target_include_directories(search_regression
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_compile_features(search_regression PRIVATE cxx_std_23)
+
     # Later we can add Catch2 or a custom harness
 endif()
 

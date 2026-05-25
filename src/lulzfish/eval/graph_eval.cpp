@@ -3,9 +3,271 @@
 #include "lulzfish/core/position.hpp"   // full definition here (cpp only)
 #include "lulzfish/core/attacks.hpp"
 
+#include <algorithm>
+
 using namespace lulzfish::core;
 
 namespace lulzfish::eval::graph {
+
+namespace {
+
+constexpr int PIECE_VALUES[7] = {
+    0,    // None
+    100,  // Pawn
+    320,  // Knight
+    330,  // Bishop
+    500,  // Rook
+    900,  // Queen
+    0     // King
+};
+
+int piece_value(PieceType pt) {
+    return PIECE_VALUES[static_cast<int>(pt)];
+}
+
+int relative_rank(Square sq, Color color) {
+    int rank = rank_of(sq);
+    return color == Color::White ? rank : 7 - rank;
+}
+
+Bitboard file_mask(int file) {
+    return FileA << file;
+}
+
+int center_score(Square sq) {
+    int file = file_of(sq);
+    int rank = rank_of(sq);
+    int file_dist = std::min(std::abs(file - 3), std::abs(file - 4));
+    int rank_dist = std::min(std::abs(rank - 3), std::abs(rank - 4));
+    return 6 - 2 * (file_dist + rank_dist);
+}
+
+int square_distance(Square a, Square b) {
+    return std::max(std::abs(file_of(a) - file_of(b)), std::abs(rank_of(a) - rank_of(b)));
+}
+
+bool is_passed_pawn(const Position& pos, Square sq, Color color) {
+    Color enemy = opposite(color);
+    Bitboard enemy_pawns = pos.pieces(make_piece(enemy, PieceType::Pawn));
+    int file = file_of(sq);
+    int rank = rank_of(sq);
+
+    for (int f = std::max(0, file - 1); f <= std::min(7, file + 1); ++f) {
+        Bitboard pawns = enemy_pawns & file_mask(f);
+        while (pawns) {
+            Square enemy_sq = lsb_square(pawns);
+            int enemy_rank = rank_of(enemy_sq);
+            if ((color == Color::White && enemy_rank > rank) ||
+                (color == Color::Black && enemy_rank < rank)) {
+                return false;
+            }
+            (void)pop_lsb(pawns);
+        }
+    }
+
+    return true;
+}
+
+int non_pawn_material(const Position& pos) {
+    int score = 0;
+    for (Color color : {Color::White, Color::Black}) {
+        score += popcount(pos.pieces(make_piece(color, PieceType::Knight))) * PIECE_VALUES[2];
+        score += popcount(pos.pieces(make_piece(color, PieceType::Bishop))) * PIECE_VALUES[3];
+        score += popcount(pos.pieces(make_piece(color, PieceType::Rook))) * PIECE_VALUES[4];
+        score += popcount(pos.pieces(make_piece(color, PieceType::Queen))) * PIECE_VALUES[5];
+    }
+    return score;
+}
+
+int piece_square_bonus(const Position& pos, PieceType pt, Square sq, Color color) {
+    int file = file_of(sq);
+    int rel_rank = relative_rank(sq, color);
+    int center = center_score(sq);
+
+    switch (pt) {
+        case PieceType::Pawn: {
+            int score = rel_rank * 7;
+            if (file == 3 || file == 4) score += 8;
+            if (file == 2 || file == 5) score += 4;
+            if (is_passed_pawn(pos, sq, color)) score += rel_rank * rel_rank * 4;
+            return score;
+        }
+        case PieceType::Knight:
+            return center * 12;
+        case PieceType::Bishop:
+            return center * 5;
+        case PieceType::Rook: {
+            int score = (rel_rank == 6) ? 18 : 0;
+            Bitboard own_pawns = pos.pieces(make_piece(color, PieceType::Pawn)) & file_mask(file);
+            Bitboard enemy_pawns = pos.pieces(make_piece(opposite(color), PieceType::Pawn)) & file_mask(file);
+            if (!own_pawns && !enemy_pawns) score += 15;
+            else if (!own_pawns) score += 8;
+            return score;
+        }
+        case PieceType::Queen:
+            return center * 2;
+        case PieceType::King:
+            if (non_pawn_material(pos) > 2600) {
+                int score = (rel_rank == 0) ? 10 : -rel_rank * 7;
+                if (file == 6 || file == 2) score += 18;
+                if (file == 3 || file == 4) score -= 12;
+                return score;
+            }
+            return center * 10;
+        default:
+            return 0;
+    }
+}
+
+Bitboard attacks_for_piece(const Position& pos, PieceType pt, Square sq, Color color) {
+    switch (pt) {
+        case PieceType::Pawn:   return pawn_attacks(sq, color);
+        case PieceType::Knight: return knight_attacks_bb(sq);
+        case PieceType::Bishop: return bishop_attacks_bb(sq, pos.occupancy());
+        case PieceType::Rook:   return rook_attacks_bb(sq, pos.occupancy());
+        case PieceType::Queen:  return queen_attacks_bb(sq, pos.occupancy());
+        case PieceType::King:   return king_attacks_bb(sq);
+        default:                return EmptyBB;
+    }
+}
+
+int mobility_bonus(const Position& pos, PieceType pt, Square sq, Color color) {
+    if (pt == PieceType::Pawn || pt == PieceType::King) return 0;
+
+    Bitboard attacks = attacks_for_piece(pos, pt, sq, color) & ~pos.pieces(color);
+    int mobility = popcount(attacks);
+
+    switch (pt) {
+        case PieceType::Knight: return mobility * 4;
+        case PieceType::Bishop: return mobility * 3;
+        case PieceType::Rook:   return mobility * 2;
+        case PieceType::Queen:  return mobility;
+        default:                return 0;
+    }
+}
+
+int king_safety_score(const Position& pos, Color color) {
+    Bitboard king = pos.pieces(make_piece(color, PieceType::King));
+    if (!king) return 0;
+
+    Square king_sq = lsb_square(king);
+    Color enemy = opposite(color);
+    Bitboard ring = king_attacks_bb(king_sq) | square_bb(king_sq);
+    int score = 0;
+
+    constexpr int ATTACK_WEIGHTS[7] = {
+        0, 3, 9, 8, 12, 18, 0
+    };
+
+    for (int pt_index = 1; pt_index <= 6; ++pt_index) {
+        PieceType pt = static_cast<PieceType>(pt_index);
+        Bitboard pieces = pos.pieces(make_piece(enemy, pt));
+        while (pieces) {
+            Square sq = lsb_square(pieces);
+            Bitboard ring_attacks = attacks_for_piece(pos, pt, sq, enemy) & ring;
+            score -= popcount(ring_attacks) * ATTACK_WEIGHTS[pt_index];
+
+            if (pt == PieceType::Queen) {
+                int distance = square_distance(sq, king_sq);
+                if (distance <= 2) score -= 35;
+                else if (distance == 3) score -= 12;
+            }
+
+            (void)pop_lsb(pieces);
+        }
+    }
+
+    if (non_pawn_material(pos) > 1800) {
+        int king_file = file_of(king_sq);
+        int shield_rank = rank_of(king_sq) + (color == Color::White ? 1 : -1);
+        for (int file = std::max(0, king_file - 1); file <= std::min(7, king_file + 1); ++file) {
+            if (shield_rank >= 0 && shield_rank <= 7) {
+                Square shield_sq = make_square(file, shield_rank);
+                if (pos.piece_on(shield_sq) == make_piece(color, PieceType::Pawn)) {
+                    score += 8;
+                } else {
+                    score -= 8;
+                }
+            }
+
+            if ((pos.pieces(make_piece(color, PieceType::Pawn)) & file_mask(file)) == EmptyBB) {
+                score -= 6;
+            }
+        }
+    }
+
+    return score;
+}
+
+int evaluate_color_baseline(const Position& pos, Color color) {
+    int score = 0;
+
+    for (int pt_index = 1; pt_index <= 6; ++pt_index) {
+        PieceType pt = static_cast<PieceType>(pt_index);
+        Bitboard pieces = pos.pieces(make_piece(color, pt));
+        while (pieces) {
+            Square sq = lsb_square(pieces);
+            score += piece_value(pt);
+            score += piece_square_bonus(pos, pt, sq, color);
+            score += mobility_bonus(pos, pt, sq, color);
+            (void)pop_lsb(pieces);
+        }
+    }
+
+    if (popcount(pos.pieces(make_piece(color, PieceType::Bishop))) >= 2) {
+        score += 30;
+    }
+
+    score += king_safety_score(pos, color);
+
+    return score;
+}
+
+int relational_score(const Position& pos, const PositionGraph& graph, Color color) {
+    int score = 0;
+    Color enemy = opposite(color);
+
+    for (const auto& rel : graph.relations()) {
+        if (rel.type != ATTACKS) continue;
+
+        Piece attacker = pos.piece_on(rel.from);
+        if (attacker == Piece::None || color_of(attacker) != color) continue;
+
+        Piece victim = pos.piece_on(rel.to);
+        if (victim == Piece::None || color_of(victim) != enemy) continue;
+
+        int attacker_value = piece_value(type_of(attacker));
+        int victim_value = piece_value(type_of(victim));
+        score += 3 + victim_value / 90;
+        if (victim_value > attacker_value) score += (victim_value - attacker_value) / 80;
+    }
+
+    Bitboard king = pos.pieces(make_piece(color, PieceType::King));
+    if (king) {
+        Square king_sq = lsb_square(king);
+        score -= popcount(pos.attackers_to(king_sq, enemy)) * 35;
+        score += popcount(pos.attackers_to(king_sq, color)) * 4;
+    }
+
+    Bitboard minors = pos.pieces(make_piece(color, PieceType::Knight)) |
+                      pos.pieces(make_piece(color, PieceType::Bishop));
+    while (minors) {
+        Square sq = lsb_square(minors);
+        int rel_rank = relative_rank(sq, color);
+        Bitboard supporting_pawns = pos.attackers_to(sq, color) &
+                                    pos.pieces(make_piece(color, PieceType::Pawn));
+        Bitboard enemy_pawn_attacks = pos.attackers_to(sq, enemy) &
+                                      pos.pieces(make_piece(enemy, PieceType::Pawn));
+        if (rel_rank >= 4 && supporting_pawns && !enemy_pawn_attacks) {
+            score += 20;
+        }
+        (void)pop_lsb(minors);
+    }
+
+    return score;
+}
+
+} // namespace
 
 static double g_graph_bias = 0.0;  // set by training stub
 
@@ -13,112 +275,16 @@ double get_graph_bias() { return g_graph_bias; }
 void set_graph_bias(double b) { g_graph_bias = b; }
 
 int evaluate(const Position& pos) {
-    // Enhanced relational graph evaluator (the novel core).
-    // Uses explicit attack relations + derived features: king safety, 
-    // piece pressure, crude pawn structure, and mobility.
-    // This is designed to be incrementally updatable in the future.
-
     PositionGraph graph;
     graph.update_from_position(pos);
 
-    int score = 0;
-    Color us = pos.side_to_move();
-    Color them = opposite(us);
+    int white_score = evaluate_color_baseline(pos, Color::White) -
+                      evaluate_color_baseline(pos, Color::Black);
+    white_score += relational_score(pos, graph, Color::White) -
+                   relational_score(pos, graph, Color::Black);
+    white_score += static_cast<int>(g_graph_bias * 10);
 
-    // 1. Attack pressure on enemy pieces (core relational feature)
-    int attack_pressure = 0;
-    for (const auto& rel : graph.relations()) {
-        if (rel.type == ATTACKS) {
-            attack_pressure += 2;  // each attack on enemy is valuable
-        }
-    }
-    score += attack_pressure;
-
-    // 2. King safety from the graph (attacks on king + defenders)
-    Bitboard our_king_bb = pos.pieces(make_piece(us, PieceType::King));
-    if (our_king_bb) {
-        Square king_sq = lsb_square(our_king_bb);
-        Bitboard enemy_attacks_on_king = pos.attackers_to(king_sq, them);
-        int att_count = popcount(enemy_attacks_on_king);
-        if (att_count > 0) {
-            score -= 40 * att_count;  // strong penalty
-        }
-
-        // Bonus for own pieces defending the king (relational defense)
-        Bitboard defenders = pos.attackers_to(king_sq, us);
-        score += popcount(defenders) * 3;
-    }
-
-    // 3. Pawn structure / space (using bitboards + relations)
-    Bitboard our_pawns = pos.pieces(make_piece(us, PieceType::Pawn));
-    Bitboard their_pawns = pos.pieces(make_piece(them, PieceType::Pawn));
-    score += popcount(our_pawns) * 8;
-    score -= popcount(their_pawns) * 8;
-
-    // Crude "passed pawn" hint via relations (pawns attacking forward)
-    // (full passed pawn detection would use more graph edges)
-
-    // 4. Mobility bonus from number of relations
-    score += static_cast<int>(graph.relations().size()) / 2;
-
-    // 5. Simple pin detection (relational structure)
-    Bitboard our_king = pos.pieces(make_piece(us, PieceType::King));
-    if (our_king) {
-        Square ksq = lsb_square(our_king);
-        Bitboard their_sliders = pos.pieces(make_piece(them, PieceType::Bishop)) |
-                                 pos.pieces(make_piece(them, PieceType::Rook)) |
-                                 pos.pieces(make_piece(them, PieceType::Queen));
-        Bitboard potential_pins = their_sliders & pos.attackers_to(ksq, them);
-        score -= popcount(potential_pins) * 8;
-    }
-
-    // 6. Discovered attack bonus (relational - moving a piece reveals a slider attack)
-    // Lightweight: count cases where one of our sliders attacks through an enemy piece toward their king or valuable targets.
-    // For baseline, add a small bonus if we have open files/diagonals toward their king (using rook/bishop attacks).
-    Bitboard their_king = pos.pieces(make_piece(them, PieceType::King));
-    if (their_king) {
-        Square tksq = lsb_square(their_king);
-        Bitboard our_rooks_queens = pos.pieces(make_piece(us, PieceType::Rook)) | pos.pieces(make_piece(us, PieceType::Queen));
-        Bitboard our_bishops_queens = pos.pieces(make_piece(us, PieceType::Bishop)) | pos.pieces(make_piece(us, PieceType::Queen));
-        score += popcount(our_rooks_queens & rook_attacks_bb(tksq, pos.occupancy())) * 3;
-        score += popcount(our_bishops_queens & bishop_attacks_bb(tksq, pos.occupancy())) * 3;
-    }
-
-    // 7. Color complex control (light/dark square dominance - classic relational concept)
-    Bitboard light_squares = 0x55AA55AA55AA55AAULL; // approximate light squares
-    int our_light = popcount(pos.pieces(us) & light_squares);
-    int their_light = popcount(pos.pieces(them) & light_squares);
-    score += (our_light - their_light) * 2;
-
-    // 8. Outposts (relational - pieces on strong squares not attackable by enemy pawns, supported)
-    // Simple version: bonus for knights/bishops on advanced ranks
-    Bitboard our_minors = pos.pieces(make_piece(us, PieceType::Knight)) | pos.pieces(make_piece(us, PieceType::Bishop));
-    // Count minors on 5th+ ranks as rough outpost bonus
-    int outpost_bonus = 0;
-    Bitboard minors = our_minors;
-    while (minors) {
-        Square s = lsb_square(minors);
-        int r = rank_of(s);
-        if ((us == Color::White && r >= 4) || (us == Color::Black && r <= 3)) {
-            outpost_bonus += 5;
-        }
-        (void)pop_lsb(minors);
-    }
-    score += outpost_bonus;
-
-    // 9. Passed pawns (strong relational pawn structure)
-    // For baseline, give bonus to advanced pawns.
-    score += popcount(our_pawns & Rank7) * 20;
-    score += popcount(our_pawns & Rank6) * 10;
-
-    // 10. Piece coordination (using relations - own pieces supporting each other)
-    int own_coordination = 0; // Placeholder until DEFENDS relations are emitted.
-    score += own_coordination * 2;
-
-    // Apply training bias from self-play data
-    score += static_cast<int>(g_graph_bias * 10);
-
-    return (us == Color::White) ? score : -score;
+    return pos.side_to_move() == Color::White ? white_score : -white_score;
 }
 
 void PositionGraph::update_from_position(const Position& pos) {

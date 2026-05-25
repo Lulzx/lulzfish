@@ -144,7 +144,9 @@ void loop() {
         } else if (tokens[0] == "quit") {
             break;
         } else if (tokens[0] == "ucinewgame") {
-            // reset if needed
+            lulzfish::search::clear_search_state();
+            current_position.set_startpos();
+            position_set = false;
         } else if (tokens[0] == "bench") {
             lulzfish::search::bench(4);
         } else if (tokens[0] == "train") {

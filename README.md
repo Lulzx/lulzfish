@@ -20,8 +20,10 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 - Move generation and make/unmake pass the bundled standard perft suite in Release and Debug builds
 - Correct special move handling for the covered castling, en passant, and promotion positions
 - Scalar ray-scanned slider attacks as the correctness baseline; verified magic bitboards are the next optimization target
-- Explicit relational graph evaluator prototype (attack pressure, king safety, pins, discovered attacks, color complexes)
-- Search prototype: alpha-beta + TT + QSearch + Null Move + SEE + History/Killers
+- Material/PST/mobility/pawn-structure evaluator baseline with a relational graph overlay for attack pressure, king-ring safety, pawn shield, and outposts
+- Search prototype: alpha-beta + iterative deepening root search + bounded check extension + TT bounds/hash move ordering + QSearch with bounded quiet checks + Null Move + SEE + History/Killers
+- Search regression guardrails for basic development, center control, and tactical material capture
+- `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches
 - Self-play with data recording (selfplay_data.txt for future ML training)
 
 The current priority is to keep correctness locked down while replacing scalar attack generation with measured, verified fast paths and turning the graph evaluator from a rebuilt-per-eval prototype into an actually incremental accumulator.
@@ -71,6 +73,14 @@ uci
 isready
 position startpos
 go depth 10
+```
+
+Lightweight strength probes:
+
+```bash
+python3 -m pip install bulletchess
+python3 tools/lulzfish_match.py --mode selfplay --engine ./build/lulzfish --games 4 --depth 2
+python3 tools/lulzfish_match.py --mode stockfish --engine ./build/lulzfish --stockfish /path/to/stockfish --games 10 --depth 2 --stockfish-depth 2
 ```
 
 ## Philosophy & First Principles
