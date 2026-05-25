@@ -825,7 +825,7 @@ void train_from_selfplay(const std::string& filename) {
     file.close();
 
     if (count > 0) {
-        double avg = total_score / (double)count;
+        double avg = static_cast<double>(total_score) / static_cast<double>(count);
         g_eval_bias = avg / 100.0;  // simple bias for eval
         // Apply to graph eval
         lulzfish::eval::graph::set_graph_bias(g_eval_bias);

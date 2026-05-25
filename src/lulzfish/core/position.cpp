@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <bitset>
 #include <iomanip>
 #include <iostream>
 #include <random>
@@ -24,6 +25,13 @@ struct SplitMix64 {
         return z ^ (z >> 31);
     }
 };
+
+constexpr uint8_t WHITE_CASTLING_MASK = static_cast<uint8_t>(WhiteOO | WhiteOOO);
+constexpr uint8_t BLACK_CASTLING_MASK = static_cast<uint8_t>(BlackOO | BlackOOO);
+
+void clear_castling_rights(uint8_t& rights, uint8_t mask) {
+    rights = static_cast<uint8_t>(rights & static_cast<uint8_t>(~mask));
+}
 
 } // anonymous namespace
 
@@ -231,8 +239,8 @@ void Position::make_move(Move m, StateInfo& undo) {
         move_piece(rook_from, rook_to);
 
         // Update castling rights
-        if (us == Color::White) castling_rights_ &= ~(WhiteOO | WhiteOOO);
-        else castling_rights_ &= ~(BlackOO | BlackOOO);
+        if (us == Color::White) clear_castling_rights(castling_rights_, WHITE_CASTLING_MASK);
+        else clear_castling_rights(castling_rights_, BLACK_CASTLING_MASK);
 
     } else if (is_en_passant(m)) {
         int dir = (us == Color::White) ? -8 : 8;
@@ -256,23 +264,23 @@ void Position::make_move(Move m, StateInfo& undo) {
     // Update castling rights for king/rook moves (non-castling)
     if (!is_castling(m)) {
         if (type_of(mover) == PieceType::King) {
-            if (us == Color::White) castling_rights_ &= ~(WhiteOO | WhiteOOO);
-            else castling_rights_ &= ~(BlackOO | BlackOOO);
+            if (us == Color::White) clear_castling_rights(castling_rights_, WHITE_CASTLING_MASK);
+            else clear_castling_rights(castling_rights_, BLACK_CASTLING_MASK);
         }
         if (type_of(mover) == PieceType::Rook) {
-            if (from == A1) castling_rights_ &= ~WhiteOOO;
-            if (from == H1) castling_rights_ &= ~WhiteOO;
-            if (from == A8) castling_rights_ &= ~BlackOOO;
-            if (from == H8) castling_rights_ &= ~BlackOO;
+            if (from == A1) clear_castling_rights(castling_rights_, static_cast<uint8_t>(WhiteOOO));
+            if (from == H1) clear_castling_rights(castling_rights_, static_cast<uint8_t>(WhiteOO));
+            if (from == A8) clear_castling_rights(castling_rights_, static_cast<uint8_t>(BlackOOO));
+            if (from == H8) clear_castling_rights(castling_rights_, static_cast<uint8_t>(BlackOO));
         }
     }
 
     // Clear rights if a rook was captured on its starting square
     if (is_capture) {
-        if (to == A1) castling_rights_ &= ~WhiteOOO;
-        if (to == H1) castling_rights_ &= ~WhiteOO;
-        if (to == A8) castling_rights_ &= ~BlackOOO;
-        if (to == H8) castling_rights_ &= ~BlackOO;
+        if (to == A1) clear_castling_rights(castling_rights_, static_cast<uint8_t>(WhiteOOO));
+        if (to == H1) clear_castling_rights(castling_rights_, static_cast<uint8_t>(WhiteOO));
+        if (to == A8) clear_castling_rights(castling_rights_, static_cast<uint8_t>(BlackOOO));
+        if (to == H8) clear_castling_rights(castling_rights_, static_cast<uint8_t>(BlackOO));
     }
 
     // Set new en passant square
