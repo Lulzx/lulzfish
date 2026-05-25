@@ -91,6 +91,13 @@ int main() {
             {"f3d4", "c3b5"},
         },
         {
+            "Keep c-pawn counterplay in Queen's Gambit structures",
+            "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2",
+            2,
+            {},
+            {"b8c6"},
+        },
+        {
             "Take the hanging queen",
             "4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1",
             2,

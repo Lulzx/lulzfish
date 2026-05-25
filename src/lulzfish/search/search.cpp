@@ -19,6 +19,7 @@ static constexpr int MAX_PLY = 128;
 static constexpr int ROOT_KNIGHT_VERIFICATION_PENALTY = 60;
 static constexpr int ROOT_CENTER_PAWN_BONUS = 35;
 static constexpr int ROOT_WING_PAWN_PENALTY = 30;
+static constexpr int ROOT_BLOCKED_C_PAWN_PENALTY = 70;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -63,9 +64,33 @@ bool needs_root_knight_verification(const Position& pos, Move move) {
     return relative_rank(to_sq(move), color) >= 3 && !has_advanced_center_pawn(pos, color);
 }
 
+bool blocks_c_pawn_counterplay(const Position& pos, Move move) {
+    Piece mover = pos.piece_on(from_sq(move));
+    if (mover == Piece::None || type_of(mover) != PieceType::Knight) return false;
+
+    Color color = color_of(mover);
+    if (color == Color::White) {
+        return from_sq(move) == B1 && to_sq(move) == C3 &&
+               pos.piece_on(C2) == Piece::WhitePawn &&
+               pos.piece_on(D4) == Piece::WhitePawn &&
+               pos.piece_on(C5) == Piece::BlackPawn;
+    }
+
+    return from_sq(move) == B8 && to_sq(move) == C6 &&
+           pos.piece_on(C7) == Piece::BlackPawn &&
+           pos.piece_on(D5) == Piece::BlackPawn &&
+           pos.piece_on(C4) == Piece::WhitePawn;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
-    if (mover == Piece::None || type_of(mover) != PieceType::Pawn) return 0;
+    if (mover == Piece::None) return 0;
+
+    if (blocks_c_pawn_counterplay(pos, move)) {
+        return -ROOT_BLOCKED_C_PAWN_PENALTY;
+    }
+
+    if (type_of(mover) != PieceType::Pawn) return 0;
     if (pos.piece_on(to_sq(move)) != Piece::None || is_en_passant(move) || is_promotion(move)) return 0;
 
     Color color = color_of(mover);
