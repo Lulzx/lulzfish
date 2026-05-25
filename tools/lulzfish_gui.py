@@ -773,14 +773,25 @@ def make_handler(app: App):
         def log_message(self, fmt: str, *args: Any) -> None:
             sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+        def serve_index(self, include_body: bool) -> None:
+            body = HTML.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if include_body:
+                self.wfile.write(body)
+
+        def do_HEAD(self) -> None:
+            if self.path == "/" or self.path == "/index.html":
+                self.serve_index(include_body=False)
+                return
+            self.send_response(HTTPStatus.NOT_FOUND)
+            self.end_headers()
+
         def do_GET(self) -> None:
             if self.path == "/" or self.path == "/index.html":
-                body = HTML.encode("utf-8")
-                self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.serve_index(include_body=True)
                 return
             if self.path == "/api/state":
                 json_response(self, HTTPStatus.OK, app.game.state())
