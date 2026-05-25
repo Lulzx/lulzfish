@@ -38,9 +38,25 @@ PIECE_VALUES_CP = {
 OPENINGS: list[tuple[str, list[str]]] = [
     ("startpos", []),
     ("open_game", ["e2e4", "e7e5"]),
+    ("italian", ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"]),
+    ("ruy_lopez", ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"]),
+    ("scotch", ["e2e4", "e7e5", "g1f3", "b8c6", "d2d4", "e5d4"]),
     ("sicilian", ["e2e4", "c7c5"]),
+    ("caro_kann", ["e2e4", "c7c6", "d2d4", "d7d5"]),
     ("queens_pawn", ["d2d4", "d7d5", "c2c4"]),
+    ("slav", ["d2d4", "d7d5", "c2c4", "c7c6"]),
     ("french", ["e2e4", "e7e6", "d2d4", "d7d5"]),
+    ("scandinavian", ["e2e4", "d7d5", "e4d5", "d8d5"]),
+    ("pirc", ["e2e4", "d7d6", "d2d4", "g8f6", "b1c3", "g7g6"]),
+    ("alekhine", ["e2e4", "g8f6"]),
+    ("kings_indian", ["d2d4", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "e2e4", "d7d6"]),
+    ("nimzo_indian", ["d2d4", "g8f6", "c2c4", "e7e6", "b1c3", "f8b4"]),
+    ("queen_indian", ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "b7b6"]),
+    ("benoni", ["d2d4", "g8f6", "c2c4", "c7c5", "d4d5", "e7e6"]),
+    ("dutch", ["d2d4", "f7f5"]),
+    ("english", ["c2c4", "e7e5", "b1c3", "g8f6"]),
+    ("reti", ["g1f3", "d7d5", "c2c4"]),
+    ("london", ["d2d4", "d7d5", "c1f4", "g8f6", "e2e3"]),
 ]
 
 
@@ -121,6 +137,7 @@ class UciEngine:
 class GameRecord:
     white_name: str
     black_name: str
+    opening_name: str
     start_fen: str
     san_moves: list[str]
     uci_moves: list[str]
@@ -187,6 +204,7 @@ def play_game(
     black: UciEngine,
     white_name: str,
     black_name: str,
+    opening_name: str,
     white_depth: int,
     black_depth: int,
     max_plies: int,
@@ -219,6 +237,7 @@ def play_game(
     record = GameRecord(
         white_name=white_name,
         black_name=black_name,
+        opening_name=opening_name,
         start_fen=start_fen,
         san_moves=san_moves,
         uci_moves=uci_moves,
@@ -260,6 +279,7 @@ def append_pgn(path: Path, record: GameRecord) -> None:
         "White": record.white_name,
         "Black": record.black_name,
         "Result": record.result,
+        "Opening": record.opening_name,
         "Termination": record.termination,
         "PlyCount": str(record.plies),
     }
@@ -306,6 +326,7 @@ def run_stockfish(args: argparse.Namespace) -> int:
                 black=black,
                 white_name=white_name,
                 black_name=black_name,
+                opening_name=opening_name,
                 white_depth=white_depth,
                 black_depth=black_depth,
                 max_plies=args.max_plies,
@@ -352,6 +373,7 @@ def run_selfplay(args: argparse.Namespace) -> int:
                 black=black,
                 white_name="Lulzfish",
                 black_name="Lulzfish",
+                opening_name=opening_name,
                 white_depth=args.depth,
                 black_depth=args.depth,
                 max_plies=args.max_plies,
