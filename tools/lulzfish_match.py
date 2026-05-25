@@ -144,6 +144,7 @@ class GameRecord:
     result: str
     termination: str
     plies: int
+    final_material_cp: int
 
 
 def board_from_opening(moves: list[str]) -> bc.Board:
@@ -244,6 +245,7 @@ def play_game(
         result=result_text,
         termination=termination,
         plies=plies,
+        final_material_cp=material_balance_cp(board),
     )
     return result_text, termination, plies, record
 
@@ -282,6 +284,7 @@ def append_pgn(path: Path, record: GameRecord) -> None:
         "Opening": record.opening_name,
         "Termination": record.termination,
         "PlyCount": str(record.plies),
+        "MaterialBalanceCp": str(record.final_material_cp),
     }
     if record.start_fen != START_FEN:
         headers["SetUp"] = "1"
@@ -340,10 +343,13 @@ def run_stockfish(args: argparse.Namespace) -> int:
         score = score_for_lulzfish(result_text, lulzfish_white)
         total += score
         color = "White" if lulzfish_white else "Black"
+        lulzfish_material = record.final_material_cp if lulzfish_white else -record.final_material_cp
         print(
             f"Game {game_no + 1:02d} {opening_name:11s}: "
             f"Lulzfish {color:5s} result {result_text:7s} "
-            f"score {score:.1f} plies {plies:3d} {termination}"
+            f"score {score:.1f} plies {plies:3d} "
+            f"mat {lulzfish_material:+5d} {termination}",
+            flush=True,
         )
         if args.pgn:
             append_pgn(args.pgn, record)
@@ -351,7 +357,8 @@ def run_stockfish(args: argparse.Namespace) -> int:
     print(
         f"Lulzfish total: {total:.1f}/{args.games} "
         f"at depth {args.depth} vs Stockfish depth {args.stockfish_depth} "
-        f"({time.time() - started:.1f}s)"
+        f"({time.time() - started:.1f}s)",
+        flush=True,
     )
     return 0
 
@@ -386,12 +393,17 @@ def run_selfplay(args: argparse.Namespace) -> int:
 
         print(
             f"Game {game_no + 1:02d} {opening_name:11s}: "
-            f"result {result_text:7s} plies {plies:3d} {termination}"
+            f"result {result_text:7s} plies {plies:3d} "
+            f"mat {record.final_material_cp:+5d} {termination}",
+            flush=True,
         )
         if args.pgn:
             append_pgn(args.pgn, record)
 
-    print(f"Self-play complete: {args.games} games at depth {args.depth} ({time.time() - started:.1f}s)")
+    print(
+        f"Self-play complete: {args.games} games at depth {args.depth} ({time.time() - started:.1f}s)",
+        flush=True,
+    )
     return 0
 
 
