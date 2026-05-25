@@ -15,12 +15,13 @@ namespace lulzfish::search {
 
 static constexpr int MATE = 30000;
 static constexpr int INF  = 31000;
+static constexpr int MAX_PLY = 128;
 
 static TranspositionTable tt(16); // 16MB TT
 
 // Simple history and killer tables for move ordering (on top of SEE)
 static int history[64][64] = {};
-static Move killers[2][2] = {};  // [ply % 2][slot]
+static Move killers[MAX_PLY][2] = {};  // [ply][slot]
 
 namespace {
 
@@ -157,6 +158,7 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
 
     // Basic ordering using SEE + capture value + killers + history
     std::vector<std::pair<int, Move>> ordered;
+    int ply_index = std::min(ply, MAX_PLY - 1);
     for (int i = 0; i < moves.size(); ++i) {
         Move m = moves[i];
         int val = lulzfish::core::capture_value(pos, m) + lulzfish::core::see(pos, to_sq(m));
@@ -164,9 +166,9 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
         // Hash move first if it is available for this position.
         if (m == tt_move) val += 20000;
 
-        // Killer bonus (very high priority)
-        if (m == killers[0][0] || m == killers[0][1]) val += 10000;
-        if (m == killers[1][0] || m == killers[1][1]) val += 9000;
+        // Killer bonus for quiet cutoffs seen at this ply.
+        if (m == killers[ply_index][0]) val += 10000;
+        if (m == killers[ply_index][1]) val += 9000;
 
         // History bonus
         Square f = from_sq(m);
@@ -229,8 +231,8 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
 
     // Update killers and history on good cutoff / best move
     if (cutoff && best_move && best_is_quiet) {
-        killers[depth % 2][1] = killers[depth % 2][0];
-        killers[depth % 2][0] = best_move;
+        killers[ply_index][1] = killers[ply_index][0];
+        killers[ply_index][0] = best_move;
 
         Square f = from_sq(best_move);
         Square t = to_sq(best_move);
