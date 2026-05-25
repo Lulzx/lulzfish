@@ -80,7 +80,7 @@ Lightweight strength probes:
 ```bash
 python3 -m pip install bulletchess
 python3 tools/lulzfish_match.py --mode selfplay --engine ./build/lulzfish --games 4 --depth 2
-python3 tools/lulzfish_match.py --mode stockfish --engine ./build/lulzfish --stockfish /path/to/stockfish --games 10 --depth 2 --stockfish-depth 2
+python3 tools/lulzfish_match.py --mode stockfish --engine ./build/lulzfish --stockfish /path/to/stockfish --games 10 --depth 2 --stockfish-depth 2 --material-adjudication 500
 ```
 
 ## Philosophy & First Principles

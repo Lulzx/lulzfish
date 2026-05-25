@@ -27,6 +27,14 @@ except ImportError as exc:
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
+PIECE_VALUES_CP = {
+    bc.PAWN: 100,
+    bc.KNIGHT: 320,
+    bc.BISHOP: 330,
+    bc.ROOK: 500,
+    bc.QUEEN: 900,
+}
+
 OPENINGS: list[tuple[str, list[str]]] = [
     ("startpos", []),
     ("open_game", ["e2e4", "e7e5"]),
@@ -139,7 +147,16 @@ def score_for_lulzfish(result: str, lulzfish_white: bool) -> float:
     return 0.5
 
 
-def outcome(board: bc.Board, hit_max_plies: bool) -> tuple[str, str]:
+def material_balance_cp(board: bc.Board) -> int:
+    white = 0
+    black = 0
+    for piece_type, value in PIECE_VALUES_CP.items():
+        white += len(board[bc.WHITE, piece_type]) * value
+        black += len(board[bc.BLACK, piece_type]) * value
+    return white - black
+
+
+def outcome(board: bc.Board, hit_max_plies: bool, material_adjudication: int = 0) -> tuple[str, str]:
     if board in bc.CHECKMATE:
         return ("0-1", "CHECKMATE") if board.turn is bc.WHITE else ("1-0", "CHECKMATE")
     if board in bc.STALEMATE:
@@ -153,6 +170,12 @@ def outcome(board: bc.Board, hit_max_plies: bool) -> tuple[str, str]:
     if board in bc.FORCED_DRAW or board in bc.DRAW:
         return "1/2-1/2", "DRAW"
     if hit_max_plies:
+        if material_adjudication > 0:
+            material = material_balance_cp(board)
+            if material >= material_adjudication:
+                return "1-0", f"MATERIAL_ADJUDICATION+{material}"
+            if material <= -material_adjudication:
+                return "0-1", f"MATERIAL_ADJUDICATION{material}"
         return "1/2-1/2", "MAX_PLIES"
     return "*", "UNKNOWN"
 
@@ -167,6 +190,7 @@ def play_game(
     white_depth: int,
     black_depth: int,
     max_plies: int,
+    material_adjudication: int,
     initial_uci_moves: list[str],
 ) -> tuple[str, str, int, GameRecord]:
     start_fen = board.fen()
@@ -187,7 +211,11 @@ def play_game(
         board.apply(move)
         plies += 1
 
-    result_text, termination = outcome(board, hit_max_plies=(plies >= max_plies))
+    result_text, termination = outcome(
+        board,
+        hit_max_plies=(plies >= max_plies),
+        material_adjudication=material_adjudication,
+    )
     record = GameRecord(
         white_name=white_name,
         black_name=black_name,
@@ -281,6 +309,7 @@ def run_stockfish(args: argparse.Namespace) -> int:
                 white_depth=white_depth,
                 black_depth=black_depth,
                 max_plies=args.max_plies,
+                material_adjudication=args.material_adjudication,
                 initial_uci_moves=opening_moves,
             )
         finally:
@@ -326,6 +355,7 @@ def run_selfplay(args: argparse.Namespace) -> int:
                 white_depth=args.depth,
                 black_depth=args.depth,
                 max_plies=args.max_plies,
+                material_adjudication=args.material_adjudication,
                 initial_uci_moves=opening_moves,
             )
         finally:
@@ -352,6 +382,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--stockfish-depth", type=int, default=2)
     parser.add_argument("--max-plies", type=int, default=120)
+    parser.add_argument(
+        "--material-adjudication",
+        type=int,
+        default=0,
+        help="centipawn material threshold for adjudicating games that hit --max-plies; 0 disables it",
+    )
     parser.add_argument("--openings", type=int, default=len(OPENINGS), help="number of built-in openings to cycle")
     parser.add_argument("--pgn", type=Path, help="optional PGN output path")
     return parser.parse_args(argv)
