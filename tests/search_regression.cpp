@@ -98,6 +98,13 @@ int main() {
             {"b8c6"},
         },
         {
+            "Challenge the center in Pirc structures",
+            "rnbqkb1r/ppp1pp1p/3p1np1/8/3PP3/2N5/PPP1BPPP/R1BQK1NR b KQkq - 1 4",
+            2,
+            {"e7e5"},
+            {"b8c6", "d6d5"},
+        },
+        {
             "Take the hanging queen",
             "4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1",
             2,
