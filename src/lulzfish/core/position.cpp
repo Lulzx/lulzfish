@@ -44,19 +44,19 @@ void Position::init_zobrist_tables() {
     SplitMix64 rng(0x123456789abcdef0ULL);  // Fixed seed for reproducibility
 
     // Piece-square keys (index 0 is unused / None)
-    for (int p = 0; p < 13; ++p) {
-        for (int sq = 0; sq < 64; ++sq) {
+    for (size_t p = 0; p < zobrist_piece_.size(); ++p) {
+        for (size_t sq = 0; sq < zobrist_piece_[p].size(); ++sq) {
             zobrist_piece_[p][sq] = rng.next();
         }
     }
 
     // Castling rights (0-15)
-    for (int cr = 0; cr < 16; ++cr) {
+    for (size_t cr = 0; cr < zobrist_castling_.size(); ++cr) {
         zobrist_castling_[cr] = rng.next();
     }
 
     // En passant files (we key by square for simplicity; 64 + "none")
-    for (int i = 0; i < 65; ++i) {
+    for (size_t i = 0; i < zobrist_ep_.size(); ++i) {
         zobrist_ep_[i] = rng.next();
     }
 
@@ -71,12 +71,14 @@ void Position::init_zobrist_tables() {
 
 Position::Position() {
     init_zobrist_tables();
+    init_attack_tables();
     clear();
     set_startpos();
 }
 
 Position::Position(std::string_view fen) {
     init_zobrist_tables();
+    init_attack_tables();
     clear();
     set_from_fen(fen);
 }
@@ -203,6 +205,11 @@ void Position::make_move(Move m, StateInfo& undo) {
     undo.castling_rook_to   = NoneSquare;
     undo.promoted_to        = Piece::None;
 
+    key_ ^= zobrist_castling_[castling_rights_];
+    if (en_passant_square_ != NoneSquare) {
+        key_ ^= zobrist_ep_[static_cast<size_t>(en_passant_square_)];
+    }
+
     bool is_pawn = (type_of(mover) == PieceType::Pawn);
     bool is_capture = (captured != Piece::None);
 
@@ -273,6 +280,11 @@ void Position::make_move(Move m, StateInfo& undo) {
         en_passant_square_ = static_cast<Square>((static_cast<int>(from) + static_cast<int>(to)) / 2);
     }
 
+    key_ ^= zobrist_castling_[castling_rights_];
+    if (en_passant_square_ != NoneSquare) {
+        key_ ^= zobrist_ep_[static_cast<size_t>(en_passant_square_)];
+    }
+
     // Halfmove clock
     halfmove_clock_ = (is_pawn || is_capture) ? 0 : (halfmove_clock_ + 1);
 
@@ -337,6 +349,10 @@ void Position::make_null_move(StateInfo& undo) {
     undo.previous_key       = key_;
     undo.en_passant_square  = en_passant_square_;
     undo.halfmove_clock     = static_cast<uint8_t>(halfmove_clock_);
+
+    if (en_passant_square_ != NoneSquare) {
+        key_ ^= zobrist_ep_[static_cast<size_t>(en_passant_square_)];
+    }
 
     en_passant_square_ = NoneSquare;
     side_to_move_      = opposite(side_to_move_);
@@ -414,7 +430,7 @@ void Position::set_from_fen(std::string_view fen) {
         Bitboard bb = pieces(piece);
         while (bb) {
             Square s = lsb_square(bb);
-            key_ ^= zobrist_piece_[p][static_cast<size_t>(s)];
+            key_ ^= zobrist_piece_[static_cast<size_t>(p)][static_cast<size_t>(s)];
             (void)pop_lsb(bb);
         }
     }

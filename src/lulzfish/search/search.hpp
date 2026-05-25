@@ -16,7 +16,13 @@ struct SearchLimits {
     // time, nodes, etc. can be added later
 };
 
+struct SearchResult {
+    int score = 0;
+    core::Move best_move = core::MOVE_NONE;
+};
+
 int search(Position& pos, SearchLimits limits);
+SearchResult search_root(Position& pos, SearchLimits limits);
 
 // Basic self-play for data recording (foundation for future training of controller or graph net)
 void self_play_game(int num_games = 1, int max_depth = 6, int max_moves = 80);

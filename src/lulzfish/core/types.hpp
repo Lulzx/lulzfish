@@ -179,7 +179,8 @@ constexpr Piece piece_from_char(char c) {
 //------------------------------------------------------------------------------
 // bits  0-5 : from square
 // bits  6-11: to square
-// bits 12-13: promotion type (0=none, 1=knight, 2=bishop, 3=rook, 4=queen)
+// bits 12-13: promotion piece code when MOVE_PROMOTION is set
+//             (0=knight, 1=bishop, 2=rook, 3=queen)
 // bits 14-15: move flag
 //   0 = normal
 //   1 = promotion
@@ -197,7 +198,16 @@ enum MoveFlag : uint16_t {
 };
 
 constexpr Move make_move(Square from, Square to, MoveFlag flag = MOVE_NORMAL, PieceType promo = PieceType::None) {
-    uint16_t p = (promo == PieceType::None) ? 0 : static_cast<uint16_t>(promo);
+    uint16_t p = 0;
+    if (flag == MOVE_PROMOTION) {
+        switch (promo) {
+            case PieceType::Knight: p = 0; break;
+            case PieceType::Bishop: p = 1; break;
+            case PieceType::Rook:   p = 2; break;
+            case PieceType::Queen:  p = 3; break;
+            default:                p = 3; break;
+        }
+    }
     return static_cast<Move>(static_cast<uint16_t>(from) |
                              (static_cast<uint16_t>(to) << 6) |
                              (p << 12) |
@@ -209,8 +219,14 @@ constexpr Square to_sq(Move m)   { return static_cast<Square>((m >> 6) & 0x3F); 
 
 constexpr MoveFlag move_flag(Move m)   { return static_cast<MoveFlag>(m & 0xC000); }
 constexpr PieceType promotion_type(Move m) {
+    if (move_flag(m) != MOVE_PROMOTION) return PieceType::None;
     uint16_t p = (m >> 12) & 0x3;
-    return (p == 0) ? PieceType::None : static_cast<PieceType>(p);
+    switch (p) {
+        case 0: return PieceType::Knight;
+        case 1: return PieceType::Bishop;
+        case 2: return PieceType::Rook;
+        default: return PieceType::Queen;
+    }
 }
 
 constexpr bool is_promotion(Move m)  { return move_flag(m) == MOVE_PROMOTION; }

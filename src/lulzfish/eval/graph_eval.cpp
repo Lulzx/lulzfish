@@ -102,23 +102,17 @@ int evaluate(const Position& pos) {
         if ((us == Color::White && r >= 4) || (us == Color::Black && r <= 3)) {
             outpost_bonus += 5;
         }
-        pop_lsb(minors);
+        (void)pop_lsb(minors);
     }
     score += outpost_bonus;
 
     // 9. Passed pawns (strong relational pawn structure)
-    // Basic passed pawn detection
-    Bitboard our_passed = our_pawns; // placeholder - real impl would check front spans
-    // For baseline, give bonus to advanced pawns
+    // For baseline, give bonus to advanced pawns.
     score += popcount(our_pawns & Rank7) * 20;
     score += popcount(our_pawns & Rank6) * 10;
 
     // 10. Piece coordination (using relations - own pieces supporting each other)
-    int own_coordination = 0;
-    for (const auto& rel : graph.relations()) {
-        // If we had own-piece relations, count them (current graph is attack-focused)
-        // Placeholder bonus for now
-    }
+    int own_coordination = 0; // Placeholder until DEFENDS relations are emitted.
     score += own_coordination * 2;
 
     // Apply training bias from self-play data
@@ -137,7 +131,7 @@ void PositionGraph::update_from_position(const Position& pos) {
         while (bb) {
             Square sq = lsb_square(bb);
             nodes_.push_back({piece, sq});
-            pop_lsb(bb);
+            (void)pop_lsb(bb);
         }
     }
 
@@ -163,7 +157,7 @@ void PositionGraph::rebuild_relations(const Position& pos) {
         while (targets) {
             Square target = lsb_square(targets);
             relations_.push_back({ATTACKS, node.square, target});
-            pop_lsb(targets);
+            (void)pop_lsb(targets);
         }
     }
 }
@@ -234,7 +228,7 @@ void PositionGraph::add_relations_around(const Position& pos, Square sq) {
     while (targets) {
         Square target = lsb_square(targets);
         relations_.push_back({ATTACKS, sq, target});
-        pop_lsb(targets);
+        (void)pop_lsb(targets);
     }
 }
 

@@ -26,7 +26,7 @@ uint64_t perft(Position& pos, int depth) {
     MoveList moves;
     generate_legal(pos, moves);
 
-    if (depth == 1) return moves.size();
+    if (depth == 1) return static_cast<uint64_t>(moves.size());
 
     uint64_t nodes = 0;
     StateInfo undo;
@@ -38,6 +38,36 @@ uint64_t perft(Position& pos, int depth) {
         pos.unmake_move(m, undo);
     }
     return nodes;
+}
+
+bool key_matches_fen(const Position& pos) {
+    Position rebuilt(pos.fen());
+    return rebuilt.key() == pos.key();
+}
+
+bool validate_root_make_unmake(const std::string& fen) {
+    Position pos(fen);
+    if (!key_matches_fen(pos)) return false;
+
+    MoveList moves;
+    generate_legal(pos, moves);
+
+    StateInfo undo;
+    for (int i = 0; i < moves.size(); ++i) {
+        Move move = moves[i];
+        Key before_key = pos.key();
+        std::string before_fen = pos.fen();
+
+        pos.make_move(move, undo);
+        if (!key_matches_fen(pos)) return false;
+
+        pos.unmake_move(move, undo);
+        if (pos.key() != before_key || pos.fen() != before_fen || !key_matches_fen(pos)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 struct PerftTest {
@@ -57,13 +87,19 @@ int main() {
         {"Kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 3, 97862ULL},
         {"Position 3", "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 5, 674624ULL},
         {"Position 4", "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 4, 422333ULL},
-        {"Position 5", "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 4, 210348ULL},
+        {"Position 5", "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 4, 2103487ULL},
     };
 
     bool all_passed = true;
 
     for (const auto& test : tests) {
         std::cout << "Testing " << test.name << " at depth " << test.depth << "... ";
+
+        if (!validate_root_make_unmake(test.fen)) {
+            all_passed = false;
+            std::cout << "FAIL  hash/make-unmake consistency failed\n";
+            continue;
+        }
 
         Position pos(test.fen);
         auto start = std::chrono::steady_clock::now();

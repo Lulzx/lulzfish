@@ -13,18 +13,20 @@ The long-term goal is an engine that is both **very strong** and **remarkably ef
 
 ## Current Status
 
-**v0.4 — Full Feature Push Complete** (May 2026)
+**Verified correctness baseline** (May 2026)
 
-Lulzfish has reached a major milestone. It is a playable UCI chess engine with:
+Lulzfish is a playable UCI chess engine prototype with a now-verified move generation baseline:
 
-- Explicit relational graph evaluator as core (incremental deltas, pins, discovered attacks, color complexes)
-- Modern search: alpha-beta + TT + QSearch + Null Move + SEE + History/Killers
+- Move generation and make/unmake pass the bundled standard perft suite in Release and Debug builds
+- Correct special move handling for the covered castling, en passant, and promotion positions
+- Scalar ray-scanned slider attacks as the correctness baseline; verified magic bitboards are the next optimization target
+- Explicit relational graph evaluator prototype (attack pressure, king safety, pins, discovered attacks, color complexes)
+- Search prototype: alpha-beta + TT + QSearch + Null Move + SEE + History/Killers
 - Self-play with data recording (selfplay_data.txt for future ML training)
-- Graph undo now fully symmetric
 
-This is a living implementation of the original first-principles vision: strength through better representation of chess relations, not just bigger nets or deeper search.
+The current priority is to keep correctness locked down while replacing scalar attack generation with measured, verified fast paths and turning the graph evaluator from a rebuilt-per-eval prototype into an actually incremental accumulator.
 
-Run it with any UCI GUI. The foundation for beating strong engines efficiently is in place.
+Run it with any UCI GUI, but treat playing strength and training output as prototype-level until principal variation reporting and benchmark/match infrastructure are hardened.
 
 We are deliberately following a phased approach:
 

@@ -84,44 +84,14 @@ From day one:
 
 ## Phased Roadmap (High Level)
 
-**Phase 0-4: Foundation Complete + Novel Relational Evaluator Live (Achieved)**
-- Everything in previous phases + full special move correctness (castling path safety, ep, promotions).
-- Perft stable (no crashes, counts within ~0.1-0.5% on key positions).
-- 16MB Transposition Table.
-- **The novel idea is now active and driving the engine** (latest iteration):
-  - `PositionGraph` with **basic incremental delta updates** (local rescans on make instead of full rebuild every node).
-  - `graph::evaluate()` (main eval): attack pressure, king safety + defenders, pawn structure, **pin pressure**.
-  - Quiescence search + SEE-based ordering integrated.
-  - 16MB TT + alpha-beta.
-- The engine is a living, playable prototype of the relational-graph-first architecture from the original first-principles design.
+**Current Verified Baseline (May 2026)**
+- Move generation and make/unmake pass the bundled standard perft suite exactly in Release and Debug builds.
+- Castling, en passant, and all four promotion piece types are covered by the current perft positions.
+- Slider attacks use scalar ray scans for correctness. The previous magic-bitboard path was removed from the active implementation until it can be reintroduced with collision tests and perft validation.
+- `PositionGraph` exists and has delta hooks, but `graph::evaluate()` currently rebuilds a graph from the `Position` each call. Treat it as a relational feature prototype, not yet a true NNUE-style incremental accumulator.
+- Search has alpha-beta, quiescence, TT, null move, SEE, history, killers, and root best-move reporting, but it still needs PV output and proper match infrastructure before playing strength claims mean much.
 
-**All requested items + major extensions completed**:
-- Graph undo fully symmetric with exact delta storage in StateInfo.
-- Graph eval now includes discovered attacks, pin pressure, color complexes.
-- History + killers fully on top of SEE.
-- True self-play with data file output (selfplay_data.txt).
-- Null-move pruning added.
-- Perft improved with rights fix; engine stable and stronger.
-
-Lulzfish v0.7+ (Magic + Training + Benchmark Ready) — Latest continuation:
-
-- Magic bitboards: Full implementation active (big NPS foundation).
-- Training loop: Functional data parsing and bias to graph eval.
-- Search: Aspiration, LMR, singular stub.
-- Graph: Rich features (outposts, passed pawns, coordination).
-- Benchmarking: bench() function and self-play ready.
-
-All items from the "continue" list advanced with working code. The engine is a strong prototype of the novel idea. 
-
-Run with any UCI GUI.
-
-**Known Limitations (v0.2 Baseline)**
-- Castling, en passant, and promotions have partial support (generator temporarily limited for stability).
-- Perft does not yet match all published numbers on complex positions.
-- Search is very basic (no TT, no ordering, no reductions).
-- No NNUE or relational graph evaluator yet.
-
-This baseline gives us a solid, playable engine to iterate on. The hard correctness work on special moves is the main remaining gate before we can confidently add the novel Graph NNUE evaluator.
+This gives us a clean correctness foundation for the next stage: reintroduce optimized attack generation safely, then harden search output and graph-eval incrementality under measurement.
 
 **Phase 2: Strong Baseline**
 - Implement a real NNUE (or adopt/train a small one)

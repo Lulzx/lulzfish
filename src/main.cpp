@@ -17,8 +17,8 @@
 #include <iostream>
 
 int main() {
-    std::cout << "Lulzfish v0.5+ — Novel Relational Graph Engine\n";
-    std::cout << "Magic bitboards + advanced search + graph eval ready.\n\n";
+    std::cout << "Lulzfish v0.5 — Verified Correctness Baseline\n";
+    std::cout << "Scalar attacks + search prototype + graph eval prototype.\n\n";
 
     lulzfish::core::init_attack_tables();
 

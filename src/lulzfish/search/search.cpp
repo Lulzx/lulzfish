@@ -171,19 +171,51 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta) {
     return best;
 }
 
-int search(Position& pos, SearchLimits limits) {
-    // Aspiration windows
+SearchResult search_root(Position& pos, SearchLimits limits) {
+    MoveList moves;
+    generate_legal(pos, moves);
+
+    if (moves.empty()) {
+        return {pos.is_check() ? -MATE : 0, MOVE_NONE};
+    }
+
+    std::vector<std::pair<int, Move>> ordered;
+    ordered.reserve(static_cast<size_t>(moves.size()));
+    for (int i = 0; i < moves.size(); ++i) {
+        Move m = moves[i];
+        int val = lulzfish::core::capture_value(pos, m) + lulzfish::core::see(pos, to_sq(m));
+        ordered.emplace_back(-val, m);
+    }
+    std::sort(ordered.begin(), ordered.end());
+
     int alpha = -INF;
     int beta = INF;
-    int score = alpha_beta(pos, limits.depth, alpha, beta);
+    int best_score = -INF;
+    Move best_move = ordered.front().second;
+    int child_depth = std::max(0, limits.depth - 1);
 
-    // Simple re-search with window if needed (stub)
-    if (score <= alpha || score >= beta) {
-        alpha = score - 50;
-        beta = score + 50;
-        score = alpha_beta(pos, limits.depth, alpha, beta);
+    StateInfo undo;
+    for (const auto& entry : ordered) {
+        Move move = entry.second;
+        pos.make_move(move, undo);
+        int score = -alpha_beta(pos, child_depth, -beta, -alpha);
+        pos.unmake_move(move, undo);
+
+        if (score > best_score) {
+            best_score = score;
+            best_move = move;
+        }
+        if (score > alpha) {
+            alpha = score;
+        }
     }
-    return score;
+
+    tt.store(pos.key(), best_score, limits.depth, 0, best_move);
+    return {best_score, best_move};
+}
+
+int search(Position& pos, SearchLimits limits) {
+    return search_root(pos, limits).score;
 }
 
 // Basic training stub: loads selfplay data and computes a simple bias.
@@ -236,7 +268,6 @@ void bench(int perft_depth) {
     Position pos;
     pos.set_startpos();
     auto start = std::chrono::high_resolution_clock::now();
-    uint64_t nodes = 0;  // would call a perft function
     // For stub, just time a search
     SearchLimits lim;
     lim.depth = perft_depth;
@@ -266,22 +297,22 @@ void self_play_game(int num_games, int max_depth, int max_moves) {
             SearchLimits lim;
             lim.depth = max_depth;
 
-            int score = search(pos, lim);
+            SearchResult result = search_root(pos, lim);
+            int score = result.score;
             std::string fen = pos.fen();
 
             MoveList moves;
             generate_legal(pos, moves);
             if (moves.empty()) break;
 
-            // Simple move selection for data variety (first legal)
-            Move chosen = moves[0];
+            Move chosen = result.best_move;
 
             if (data_file.is_open()) {
                 // Record FEN | score | move (simple UCI-ish from internal Move)
-                char mf = 'a' + file_of(from_sq(chosen));
-                char mr = '1' + rank_of(from_sq(chosen));
-                char mtf = 'a' + file_of(to_sq(chosen));
-                char mtr = '1' + rank_of(to_sq(chosen));
+                char mf = static_cast<char>('a' + file_of(from_sq(chosen)));
+                char mr = static_cast<char>('1' + rank_of(from_sq(chosen)));
+                char mtf = static_cast<char>('a' + file_of(to_sq(chosen)));
+                char mtr = static_cast<char>('1' + rank_of(to_sq(chosen)));
                 std::string move_str = std::string(1, mf) + mr + mtf + mtr;
                 data_file << fen << " | " << score << " | " << move_str << "\n";
             }

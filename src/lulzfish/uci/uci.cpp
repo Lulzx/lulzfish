@@ -17,8 +17,47 @@ namespace lulzfish::uci {
 static Position current_position;
 static bool position_set = false;
 
+static std::string move_to_uci(Move move) {
+    Square from = from_sq(move);
+    Square to = to_sq(move);
+
+    std::string out;
+    out += static_cast<char>('a' + file_of(from));
+    out += static_cast<char>('1' + rank_of(from));
+    out += static_cast<char>('a' + file_of(to));
+    out += static_cast<char>('1' + rank_of(to));
+
+    if (is_promotion(move)) {
+        switch (promotion_type(move)) {
+            case PieceType::Knight: out += 'n'; break;
+            case PieceType::Bishop: out += 'b'; break;
+            case PieceType::Rook:   out += 'r'; break;
+            case PieceType::Queen:  out += 'q'; break;
+            default: break;
+        }
+    }
+
+    return out;
+}
+
+static bool apply_uci_move(Position& pos, const std::string& move_text) {
+    MoveList legal_moves;
+    generate_legal(pos, legal_moves);
+
+    for (int i = 0; i < legal_moves.size(); ++i) {
+        Move move = legal_moves[i];
+        if (move_to_uci(move) == move_text) {
+            StateInfo undo;
+            pos.make_move(move, undo);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void handle_uci() {
-    std::cout << "id name Lulzfish 0.2.0 (Baseline)\n";
+    std::cout << "id name Lulzfish 0.5.0 (Verified Baseline)\n";
     std::cout << "id author lulz-chess project\n";
     std::cout << "uciok\n";
 }
@@ -45,23 +84,11 @@ static void handle_position(const std::vector<std::string>& tokens) {
     // Apply moves if present
     if (idx < tokens.size() && tokens[idx] == "moves") {
         ++idx;
-        StateInfo undo;
         for (; idx < tokens.size(); ++idx) {
-            // Very naive move parsing from UCI string (e.g. "e2e4")
-            std::string mstr = tokens[idx];
-            if (mstr.size() < 4) continue;
-
-            int from_file = mstr[0] - 'a';
-            int from_rank = mstr[1] - '1';
-            int to_file   = mstr[2] - 'a';
-            int to_rank   = mstr[3] - '1';
-
-            Square from = make_square(from_file, from_rank);
-            Square to   = make_square(to_file, to_rank);
-
-            // For baseline we just use normal moves
-            Move m = make_move(from, to);
-            current_position.make_move(m, undo);
+            if (!apply_uci_move(current_position, tokens[idx])) {
+                std::cerr << "info string ignored illegal move " << tokens[idx] << "\n";
+                break;
+            }
         }
     }
 
@@ -83,33 +110,17 @@ static void handle_go(const std::vector<std::string>& tokens) {
         }
     }
 
-    int score = lulzfish::search::search(current_position, limits);
+    SearchResult result = lulzfish::search::search_root(current_position, limits);
 
-    // For a real engine we would return the best move.
-    // For this baseline we just return a legal move (first one) + score.
     MoveList moves;
     generate_legal(current_position, moves);
 
-    if (!moves.empty()) {
-        Move best = moves[0];
-        // Very crude best move selection (we don't track pv)
-        std::cout << "info depth " << limits.depth << " score cp " << score << "\n";
-
-        // Print a move in UCI format
-        Square f = from_sq(best);
-        Square t = to_sq(best);
-        char from_file = 'a' + static_cast<char>(file_of(f));
-        char from_rank = '1' + static_cast<char>(rank_of(f));
-        char to_file   = 'a' + static_cast<char>(file_of(t));
-        char to_rank   = '1' + static_cast<char>(rank_of(t));
-        std::cout << "bestmove " << from_file << from_rank << to_file << to_rank << "\n";
+    if (!moves.empty() && result.best_move != MOVE_NONE) {
+        std::cout << "info depth " << limits.depth << " score cp " << result.score << "\n";
+        std::cout << "bestmove " << move_to_uci(result.best_move) << "\n";
     } else {
         std::cout << "bestmove 0000\n";
     }
-}
-
-static void handle_quit() {
-    // nothing
 }
 
 void loop() {

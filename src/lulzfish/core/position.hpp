@@ -81,7 +81,7 @@ public:
         // Slow path for now (we can add a mailbox[] later for O(1) if needed)
         for (int pt = 1; pt < static_cast<int>(Piece::Count); ++pt) {
             Piece p = static_cast<Piece>(pt);
-            if (test_bit(piece_bb_[pt], sq)) return p;
+            if (test_bit(piece_bb_[static_cast<size_t>(pt)], sq)) return p;
         }
         return Piece::None;
     }

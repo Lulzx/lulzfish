@@ -31,10 +31,13 @@ struct MoveList {
     int count = 0;
 
     void add(Move m) {
-        if (count < MAX_MOVES) moves[count++] = m;
+        if (count < MAX_MOVES) {
+            moves[static_cast<size_t>(count)] = m;
+            ++count;
+        }
     }
 
-    [[nodiscard]] Move operator[](int i) const { return moves[i]; }
+    [[nodiscard]] Move operator[](int i) const { return moves[static_cast<size_t>(i)]; }
     [[nodiscard]] int size() const { return count; }
     [[nodiscard]] bool empty() const { return count == 0; }
 };

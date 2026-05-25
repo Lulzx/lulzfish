@@ -10,12 +10,14 @@ namespace lulzfish::core {
 // Internal Helpers
 //==============================================================================
 
-static void add_pawn_moves(const Position& pos, MoveList& list, Color us, Square from, Square to, bool capture) {
+static void add_pawn_moves(MoveList& list, Color us, Square from, Square to) {
     int to_rank = rank_of(to);
     bool is_promotion = (us == Color::White && to_rank == 7) || (us == Color::Black && to_rank == 0);
 
     if (is_promotion) {
-        // Temporarily only queen promotions for stability during debugging
+        list.add(make_move(from, to, MOVE_PROMOTION, PieceType::Knight));
+        list.add(make_move(from, to, MOVE_PROMOTION, PieceType::Bishop));
+        list.add(make_move(from, to, MOVE_PROMOTION, PieceType::Rook));
         list.add(make_move(from, to, MOVE_PROMOTION, PieceType::Queen));
     } else {
         list.add(make_move(from, to));
@@ -34,12 +36,12 @@ static void generate_pawn_moves(const Position& pos, MoveList& list, Color us) {
     Bitboard bb = pawns;
     while (bb) {
         Square from = lsb_square(bb);
-        pop_lsb(bb);
+        (void)pop_lsb(bb);
 
         // Single push
         Square to = static_cast<Square>(static_cast<int>(from) + push);
         if (empty & square_bb(to)) {
-            add_pawn_moves(pos, list, us, from, to, false);
+            add_pawn_moves(list, us, from, to);
 
             // Double push from starting rank
             if ((us == Color::White && rank_of(from) == 1) ||
@@ -51,15 +53,19 @@ static void generate_pawn_moves(const Position& pos, MoveList& list, Color us) {
             }
         }
 
-        // Captures (including en passant)
-        for (int d : {left, right}) {
-            Square to = static_cast<Square>(static_cast<int>(from) + d);
-            if (to < A1 || to > H8) continue;
+        // Captures (including en passant). File checks prevent A/H-file wraparound.
+        int from_file = file_of(from);
+        int capture_dirs[2] = {left, right};
+        for (int i = 0; i < 2; ++i) {
+            if ((i == 0 && from_file == 0) || (i == 1 && from_file == 7)) continue;
 
-            if (test_bit(enemies, to)) {
-                add_pawn_moves(pos, list, us, from, to, true);
-            } else if (to == pos.en_passant_square()) {
-                list.add(make_move(from, to, MOVE_EN_PASSANT));
+            Square capture_to = static_cast<Square>(static_cast<int>(from) + capture_dirs[i]);
+            if (capture_to < A1 || capture_to > H8) continue;
+
+            if (test_bit(enemies, capture_to)) {
+                add_pawn_moves(list, us, from, capture_to);
+            } else if (capture_to == pos.en_passant_square()) {
+                list.add(make_move(from, capture_to, MOVE_EN_PASSANT));
             }
         }
     }
@@ -74,7 +80,7 @@ static void generate_piece_moves(const Position& pos, MoveList& list, PieceType 
     Bitboard bb = pieces;
     while (bb) {
         Square from = lsb_square(bb);
-        pop_lsb(bb);
+        (void)pop_lsb(bb);
 
         Bitboard attacks = EmptyBB;
         switch (pt) {
@@ -90,7 +96,7 @@ static void generate_piece_moves(const Position& pos, MoveList& list, PieceType 
 
         while (targets) {
             Square to = lsb_square(targets);
-            pop_lsb(targets);
+            (void)pop_lsb(targets);
             list.add(make_move(from, to));
         }
     }
@@ -102,7 +108,7 @@ static void generate_castling(const Position& pos, MoveList& list, Color us) {
     uint8_t cr = pos.castling_rights();
     Bitboard occ = pos.occupancy();
 
-    auto safe_for_castle = [&](Square king_sq, Square through, Square dest) -> bool {
+    auto safe_for_castle = [&](Square through, Square dest) -> bool {
         // King not moving through or to attacked square
         if (pos.attackers_to(through, opposite(us)) != EmptyBB) return false;
         if (pos.attackers_to(dest, opposite(us)) != EmptyBB) return false;
@@ -111,23 +117,23 @@ static void generate_castling(const Position& pos, MoveList& list, Color us) {
 
     if (us == Color::White) {
         if ((cr & WhiteOO) && !test_bit(occ, F1) && !test_bit(occ, G1)) {
-            if (safe_for_castle(E1, F1, G1)) {
+            if (safe_for_castle(F1, G1)) {
                 list.add(make_move(E1, G1, MOVE_CASTLING));
             }
         }
         if ((cr & WhiteOOO) && !test_bit(occ, B1) && !test_bit(occ, C1) && !test_bit(occ, D1)) {
-            if (safe_for_castle(E1, D1, C1)) {
+            if (safe_for_castle(D1, C1)) {
                 list.add(make_move(E1, C1, MOVE_CASTLING));
             }
         }
     } else {
         if ((cr & BlackOO) && !test_bit(occ, F8) && !test_bit(occ, G8)) {
-            if (safe_for_castle(E8, F8, G8)) {
+            if (safe_for_castle(F8, G8)) {
                 list.add(make_move(E8, G8, MOVE_CASTLING));
             }
         }
         if ((cr & BlackOOO) && !test_bit(occ, B8) && !test_bit(occ, C8) && !test_bit(occ, D8)) {
-            if (safe_for_castle(E8, D8, C8)) {
+            if (safe_for_castle(D8, C8)) {
                 list.add(make_move(E8, C8, MOVE_CASTLING));
             }
         }
