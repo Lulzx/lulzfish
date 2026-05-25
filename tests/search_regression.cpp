@@ -77,6 +77,13 @@ int main() {
             {},
         },
         {
+            "Avoid a premature knight sortie",
+            "rnbqkbnr/ppp2ppp/4p3/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 0 3",
+            2,
+            {},
+            {"f3e5"},
+        },
+        {
             "Take the hanging queen",
             "4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1",
             2,

@@ -33,6 +33,33 @@ bool move_gives_check(Position& pos, Move move) {
     return gives_check;
 }
 
+int relative_rank(Square sq, Color color) {
+    int rank = rank_of(sq);
+    return color == Color::White ? rank : 7 - rank;
+}
+
+bool has_advanced_center_pawn(const Position& pos, Color color) {
+    Bitboard pawns = pos.pieces(make_piece(color, PieceType::Pawn));
+    while (pawns) {
+        Square sq = lsb_square(pawns);
+        int file = file_of(sq);
+        if ((file == 3 || file == 4) && relative_rank(sq, color) >= 2) {
+            return true;
+        }
+        (void)pop_lsb(pawns);
+    }
+    return false;
+}
+
+bool needs_root_knight_verification(const Position& pos, Move move) {
+    Piece mover = pos.piece_on(from_sq(move));
+    if (mover == Piece::None || type_of(mover) != PieceType::Knight) return false;
+    if (is_promotion(move) || is_en_passant(move) || pos.piece_on(to_sq(move)) != Piece::None) return false;
+
+    Color color = color_of(mover);
+    return relative_rank(to_sq(move), color) >= 4 && !has_advanced_center_pawn(pos, color);
+}
+
 } // namespace
 
 void clear_search_state() {
@@ -276,8 +303,9 @@ SearchResult search_root_depth(Position& pos, int depth) {
     StateInfo undo;
     for (const auto& entry : ordered) {
         Move move = entry.second;
+        int extension = needs_root_knight_verification(pos, move) ? 1 : 0;
         pos.make_move(move, undo);
-        int score = -alpha_beta(pos, child_depth, -beta, -alpha, 1, 1);
+        int score = -alpha_beta(pos, child_depth + extension, -beta, -alpha, 1, 1);
         pos.unmake_move(move, undo);
 
         if (score > best_score) {
