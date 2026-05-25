@@ -23,6 +23,7 @@ Thumbs.db
 # Generated
 compile_commands.json
 __pycache__/
+web/dist/
 
 # Data (large opening books, nets, tablebases — keep out of repo)
 *.bin

@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lulzfish WASM</title>
+  <link rel="stylesheet" href="https://unpkg.com/chessground@9.2.1/assets/chessground.base.css">
+  <link rel="stylesheet" href="https://unpkg.com/chessground@9.2.1/assets/chessground.brown.css">
+  <link rel="stylesheet" href="https://unpkg.com/chessground@9.2.1/assets/chessground.cburnett.css">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f2;
+      --ink: #20231f;
+      --muted: #6d7467;
+      --panel: #ffffff;
+      --line: #d8dccf;
+      --accent: #2f6f4e;
+      --accent-dark: #244e39;
+      --danger: #a24d3d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      background: linear-gradient(110deg, rgba(47,111,78,0.08), transparent 34%), var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, select, input { font: inherit; }
+
+    .shell {
+      width: min(1180px, calc(100vw - 32px));
+      min-height: 100dvh;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(320px, 72dvh) minmax(280px, 1fr);
+      gap: clamp(20px, 4vw, 56px);
+      align-items: center;
+      padding: 28px 0;
+    }
+
+    .board-wrap {
+      width: 100%;
+      max-width: 760px;
+    }
+
+    .board-frame {
+      border: 1px solid rgba(32,35,31,0.18);
+      background: #283025;
+      padding: clamp(8px, 1.4vw, 14px);
+      box-shadow: 0 22px 70px rgba(32,35,31,0.18);
+    }
+
+    .board {
+      width: 100%;
+      aspect-ratio: 1;
+      border: 1px solid rgba(32,35,31,0.42);
+      overflow: hidden;
+    }
+
+    .board square.last-move {
+      background-color: rgba(214,185,95,0.44);
+    }
+
+    .board square.check {
+      background: radial-gradient(circle, rgba(185,70,63,0.82) 0%, rgba(185,70,63,0.28) 58%, transparent 75%);
+    }
+
+    .board square.move-dest {
+      background: radial-gradient(rgba(32,35,31,0.28) 19%, transparent 20%);
+    }
+
+    .side {
+      align-self: stretch;
+      display: grid;
+      align-content: center;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 54px);
+      line-height: 0.95;
+      letter-spacing: 0;
+      font-weight: 760;
+    }
+
+    .badge {
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .status {
+      display: grid;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+    }
+
+    .status-main {
+      min-height: 32px;
+      font-size: clamp(20px, 2.4vw, 28px);
+      font-weight: 680;
+      line-height: 1.15;
+    }
+
+    .status-sub {
+      color: var(--muted);
+      min-height: 24px;
+      font-size: 15px;
+    }
+
+    .controls, .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    select, input {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      padding: 11px 12px;
+      min-height: 44px;
+      outline: none;
+    }
+
+    select:focus, input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(47,111,78,0.12);
+    }
+
+    .button {
+      border: 1px solid var(--accent-dark);
+      background: var(--accent);
+      color: #fff;
+      min-height: 46px;
+      cursor: pointer;
+      font-weight: 720;
+      transition: transform 140ms ease, filter 140ms ease;
+    }
+
+    .button.secondary {
+      background: var(--panel);
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    .button:disabled {
+      cursor: wait;
+      filter: grayscale(0.2) opacity(0.72);
+    }
+
+    .button:active {
+      transform: translateY(1px) scale(0.99);
+    }
+
+    .move-list {
+      max-height: min(34dvh, 360px);
+      overflow: auto;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: #3a4038;
+      line-height: 1.8;
+    }
+
+    .moves-empty {
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      line-height: 1.4;
+    }
+
+    .promotion {
+      display: none;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .promotion.open {
+      display: flex;
+    }
+
+    .promo-button {
+      width: 42px;
+      aspect-ratio: 1;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      cursor: pointer;
+      font-size: 22px;
+    }
+
+    .error {
+      min-height: 22px;
+      color: var(--danger);
+      font-size: 14px;
+    }
+
+    @media (max-width: 860px) {
+      .shell {
+        grid-template-columns: 1fr;
+        align-items: start;
+        width: min(100vw - 24px, 720px);
+        padding: 16px 0 28px;
+      }
+      .side {
+        align-content: start;
+      }
+      .controls, .actions {
+        grid-template-columns: 1fr;
+      }
+      .move-list {
+        max-height: 220px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="board-wrap" aria-label="Chess board">
+      <div class="board-frame">
+        <div id="board" class="board"></div>
+      </div>
+    </section>
+
+    <section class="side">
+      <div class="brand">
+        <h1>Lulzfish</h1>
+        <div class="badge">WASM</div>
+      </div>
+
+      <div class="status">
+        <div id="statusMain" class="status-main">Loading engine</div>
+        <div id="statusSub" class="status-sub"></div>
+      </div>
+
+      <div class="controls">
+        <div class="field">
+          <label for="color">Play as</label>
+          <select id="color">
+            <option value="white">White</option>
+            <option value="black">Black</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="depth">Engine depth</label>
+          <input id="depth" type="number" min="1" max="5" value="2">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="newGame" class="button">New game</button>
+        <button id="flip" class="button secondary">Flip board</button>
+      </div>
+
+      <div id="promotion" class="promotion">
+        <span>Promote to</span>
+        <button class="promo-button" data-promo="q">Q</button>
+        <button class="promo-button" data-promo="r">R</button>
+        <button class="promo-button" data-promo="b">B</button>
+        <button class="promo-button" data-promo="n">N</button>
+      </div>
+
+      <div id="error" class="error"></div>
+      <div id="moves" class="move-list"><span class="moves-empty">No moves yet.</span></div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
