@@ -3,6 +3,9 @@ import { Chessground } from "https://unpkg.com/chessground@9.2.1/dist/chessgroun
 let ground = null;
 let requestId = 0;
 
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const START_BOARD_FEN = START_FEN.split(" ")[0];
+
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 const pending = new Map();
 
@@ -12,7 +15,7 @@ const state = {
   orientation: "white",
   pendingPromotion: null,
   lastMove: null,
-  fen: "startpos",
+  fen: START_FEN,
   turn: "white",
   checkSquare: null,
   result: "",
@@ -61,7 +64,7 @@ function legalDests() {
 }
 
 function boardFen() {
-  return state.fen === "startpos" ? "startpos" : state.fen.split(" ")[0];
+  return state.fen === "startpos" ? START_BOARD_FEN : state.fen.split(" ")[0];
 }
 
 function renderBoard() {
@@ -102,6 +105,32 @@ function renderBoard() {
   else ground.set(config);
 }
 
+function renderInteractivityOnly() {
+  if (!ground) {
+    renderBoard();
+    return;
+  }
+
+  ground.set({
+    movable: {
+      free: false,
+      color: state.result || state.busy ? undefined : state.playerColor,
+      dests: legalDests(),
+      showDests: true,
+      events: {
+        after: onGroundMove,
+      },
+    },
+    premovable: {
+      enabled: false,
+    },
+    draggable: {
+      enabled: !state.busy,
+      showGhost: true,
+    },
+  });
+}
+
 function renderMoves(moves) {
   if (!moves.length) {
     movesEl.innerHTML = '<span class="moves-empty">No moves yet.</span>';
@@ -116,14 +145,15 @@ function renderMoves(moves) {
   movesEl.scrollTop = movesEl.scrollHeight;
 }
 
-function setBusy(isBusy, label = "") {
+function setBusy(isBusy, label = "", options = {}) {
   state.busy = isBusy;
   newGameEl.disabled = isBusy;
   colorEl.disabled = isBusy;
   depthEl.disabled = isBusy;
   errorEl.textContent = "";
   if (isBusy) statusSub.textContent = label || "Engine is thinking.";
-  renderBoard();
+  if (options.preserveBoardPosition) renderInteractivityOnly();
+  else renderBoard();
 }
 
 function updateFromEngine(data) {
@@ -131,7 +161,7 @@ function updateFromEngine(data) {
   state.playerColor = data.player_color || state.playerColor;
   state.lastMove = data.last_move || null;
   state.checkSquare = data.check_square || null;
-  state.fen = data.fen || "startpos";
+  state.fen = data.fen || START_FEN;
   state.turn = data.turn || "white";
   state.result = data.result || "";
   state.moves = data.moves || [];
@@ -153,8 +183,8 @@ function updateFromEngine(data) {
   renderBoard();
 }
 
-async function runRequest(action, busyLabel) {
-  setBusy(true, busyLabel);
+async function runRequest(action, busyLabel, options = {}) {
+  setBusy(true, busyLabel, options);
   state.pendingPromotion = null;
   promotionEl.classList.remove("open");
   try {
@@ -180,7 +210,21 @@ async function newGame() {
 }
 
 async function sendMove(uci) {
-  await runRequest(() => askWorker("move", { uci }), "Lulzfish is thinking.");
+  setBusy(true, "Applying move.", { preserveBoardPosition: true });
+  state.pendingPromotion = null;
+  promotionEl.classList.remove("open");
+  try {
+    updateFromEngine(await askWorker("playerMove", { uci }));
+    if (!state.result && state.turn !== state.playerColor) {
+      setBusy(true, "Lulzfish is thinking.", { preserveBoardPosition: true });
+      updateFromEngine(await askWorker("engineMove"));
+    }
+  } catch (err) {
+    errorEl.textContent = err.message;
+    renderBoard();
+  } finally {
+    setBusy(false);
+  }
 }
 
 function onGroundMove(orig, dest) {

@@ -69,6 +69,17 @@ async function userMove(payload) {
   return maybePlayEngine(afterUser);
 }
 
+async function playerMove(payload) {
+  await ensureApi();
+  return parseState(api.makeMove(payload.uci || ""));
+}
+
+async function engineMove() {
+  await ensureApi();
+  const state = parseState(api.state());
+  return maybePlayEngine(state);
+}
+
 async function currentState() {
   await ensureApi();
   return parseState(api.state());
@@ -84,6 +95,10 @@ self.onmessage = async (event) => {
       data = await newGame(payload);
     } else if (type === "move") {
       data = await userMove(payload);
+    } else if (type === "playerMove") {
+      data = await playerMove(payload);
+    } else if (type === "engineMove") {
+      data = await engineMove();
     } else if (type === "state") {
       data = await currentState();
     } else {
