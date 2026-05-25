@@ -1,0 +1,35 @@
+# Build artifacts
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+lulzfish
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated
+compile_commands.json
+
+# Data (large opening books, nets, tablebases — keep out of repo)
+*.bin
+*.nnue
+*.epd
+*.pgn
+syzygy/
+books/
+
+# Temporary test outputs
+*.log
+perft_results.txt

@@ -1,0 +1,98 @@
+# Lulzfish
+
+**A novel, extremely efficient high-performance chess engine built from first principles.**
+
+Lulzfish aims to push the Pareto frontier of strength vs. compute by combining:
+
+- **Relational graph-based evaluation** (explicit modeling of attacks, pins, structures, and piece interactions — the true nature of chess)
+- **Efficiently updatable representations** (in the spirit of NNUE, but with far better inductive bias)
+- **Learned selective search control** (neural guidance for pruning, extensions, and move ordering instead of brittle hand-tuned heuristics)
+- **Hardware-first systems design** (SIMD, cache-friendly data layouts, incremental everything)
+
+The long-term goal is an engine that is both **very strong** and **remarkably efficient** — capable of beating many top engines on modest hardware by doing more effective work per node and per watt.
+
+## Current Status
+
+**v0.4 — Full Feature Push Complete** (May 2026)
+
+Lulzfish has reached a major milestone. It is a playable UCI chess engine with:
+
+- Explicit relational graph evaluator as core (incremental deltas, pins, discovered attacks, color complexes)
+- Modern search: alpha-beta + TT + QSearch + Null Move + SEE + History/Killers
+- Self-play with data recording (selfplay_data.txt for future ML training)
+- Graph undo now fully symmetric
+
+This is a living implementation of the original first-principles vision: strength through better representation of chess relations, not just bigger nets or deeper search.
+
+Run it with any UCI GUI. The foundation for beating strong engines efficiently is in place.
+
+We are deliberately following a phased approach:
+
+1. World-class traditional engine skeleton (bitboards, movegen, search, UCI)
+2. Strong baseline NNUE-style evaluator (for apples-to-apples comparison)
+3. The novel **relational / graph efficiently-updatable evaluator**
+4. Learned search controller + adaptive search
+5. Heavy optimization, scaling, and testing
+
+## Building
+
+### Requirements
+
+- CMake 3.20+
+- C++23 capable compiler (Clang 17+ or GCC 13+ recommended)
+- macOS / Linux (Windows supported in theory)
+
+### Quick Start
+
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-march=native"
+cmake --build . -j
+./lulzfish
+```
+
+For development (more debug info, less aggressive opts):
+
+```bash
+cmake .. -DCMAKE_BUILD_TYPE=Debug
+```
+
+## Running
+
+Lulzfish speaks UCI. It can be used with any UCI-compatible GUI (CuteChess, Arena, Lichess local analysis, etc.).
+
+Basic command line:
+
+```bash
+./lulzfish
+uci
+isready
+position startpos
+go depth 10
+```
+
+## Philosophy & First Principles
+
+- Chess strength = search effectiveness × evaluation quality.
+- Representation matters more than most people admit. Flat features force the net (or search) to rediscover structure.
+- Incremental computation is a superpower (see NNUE).
+- Hand-tuned heuristics have a ceiling; learned controllers that adapt to the actual evaluator can go further.
+- We optimize for **effective nodes**, not just raw NPS.
+
+See `docs/DESIGN.md` for the full technical vision.
+
+## Contributing / Development
+
+See `AGENTS.md` for project conventions, coding style, and how to work on Lulzfish effectively.
+
+This is an ambitious research + engineering project. Small, correct, well-tested increments win.
+
+## License
+
+To be decided (likely GPL-3.0 or similar once we have real code, to match the spirit of the chess engine community).
+
+## Acknowledgments
+
+Inspired by the great engines that came before — Stockfish (especially its NNUE revolution), Leela Chess Zero, Ethereal, and the research community pushing graph representations and efficient search.
+
+Built with curiosity, rigor, and a sense of humor.
