@@ -67,8 +67,15 @@ class UciEngine:
         self._send("isready")
         self._read_until("readyok")
 
-    def play(self, board: bc.Board, depth: int) -> bc.Move | None:
-        self._send(f"position fen {board.fen()}")
+    def play(self, board: bc.Board, depth: int, start_fen: str, uci_moves: list[str]) -> bc.Move | None:
+        if start_fen == START_FEN:
+            position = "position startpos"
+        else:
+            position = f"position fen {start_fen}"
+        if uci_moves:
+            position += " moves " + " ".join(uci_moves)
+
+        self._send(position)
         self._send(f"go depth {depth}")
 
         while True:
@@ -108,6 +115,7 @@ class GameRecord:
     black_name: str
     start_fen: str
     san_moves: list[str]
+    uci_moves: list[str]
     result: str
     termination: str
     plies: int
@@ -159,20 +167,23 @@ def play_game(
     white_depth: int,
     black_depth: int,
     max_plies: int,
+    initial_uci_moves: list[str],
 ) -> tuple[str, str, int, GameRecord]:
     start_fen = board.fen()
+    uci_moves = list(initial_uci_moves)
     san_moves: list[str] = []
     plies = 0
 
     while plies < max_plies and outcome(board, hit_max_plies=False)[0] == "*":
         engine = white if board.turn is bc.WHITE else black
         depth = white_depth if board.turn is bc.WHITE else black_depth
-        move = engine.play(board, depth)
+        move = engine.play(board, depth, START_FEN, uci_moves)
         if move is None:
             break
         if move not in board.legal_moves():
             raise RuntimeError(f"{engine.path} returned illegal move {move.uci()} in {board.fen()}")
         san_moves.append(move.san(board))
+        uci_moves.append(move.uci())
         board.apply(move)
         plies += 1
 
@@ -182,6 +193,7 @@ def play_game(
         black_name=black_name,
         start_fen=start_fen,
         san_moves=san_moves,
+        uci_moves=uci_moves,
         result=result_text,
         termination=termination,
         plies=plies,
@@ -269,6 +281,7 @@ def run_stockfish(args: argparse.Namespace) -> int:
                 white_depth=white_depth,
                 black_depth=black_depth,
                 max_plies=args.max_plies,
+                initial_uci_moves=opening_moves,
             )
         finally:
             white.close()
@@ -313,6 +326,7 @@ def run_selfplay(args: argparse.Namespace) -> int:
                 white_depth=args.depth,
                 black_depth=args.depth,
                 max_plies=args.max_plies,
+                initial_uci_moves=opening_moves,
             )
         finally:
             white.close()

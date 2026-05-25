@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace lulzfish::core {
 
@@ -91,6 +92,7 @@ public:
     }
 
     [[nodiscard]] Key key() const noexcept { return key_; }
+    [[nodiscard]] bool is_repetition() const;
 
     //--------------------------------------------------------------------------
     // Make / Unmake (the most performance-critical path)
@@ -147,6 +149,7 @@ private:
 
     Key key_{0};                    // Full Zobrist key
     Key pawn_key_{0};               // Pawn-only Zobrist (future use)
+    std::vector<Key> key_history_;   // Reversible-line history for repetition detection
 
     // Novel relational graph - kept incrementally updated
     lulzfish::eval::graph::PositionGraph graph_;

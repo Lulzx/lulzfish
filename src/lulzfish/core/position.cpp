@@ -95,6 +95,7 @@ void Position::clear() {
     fullmove_number_   = 1;
     key_               = 0;
     pawn_key_          = 0;
+    key_history_.clear();
 
     graph_ = {}; // reset graph
 }
@@ -296,6 +297,8 @@ void Position::make_move(Move m, StateInfo& undo) {
         ++fullmove_number_;
     }
 
+    key_history_.push_back(key_);
+
     // Keep the relational graph in sync (incremental delta with exact undo recording)
     graph_.apply_move(m, undo, *this);
 }
@@ -303,6 +306,10 @@ void Position::make_move(Move m, StateInfo& undo) {
 void Position::unmake_move(Move m, const StateInfo& undo) {
     Square from = from_sq(m);
     Square to   = to_sq(m);
+
+    if (!key_history_.empty() && key_history_.back() == key_) {
+        key_history_.pop_back();
+    }
 
     if (is_castling(m)) {
         // Undo rook first, then king
@@ -442,6 +449,7 @@ void Position::set_from_fen(std::string_view fen) {
 
     // Sync the relational graph after FEN load
     graph_.update_from_position(*this);
+    key_history_.push_back(key_);
 }
 
 // Very basic FEN exporter (good enough for debugging)
@@ -490,6 +498,20 @@ std::string Position::fen() const {
 
     out << ' ' << halfmove_clock_ << ' ' << fullmove_number_;
     return out.str();
+}
+
+bool Position::is_repetition() const {
+    if (key_history_.size() < 2) return false;
+
+    int reversible_plies = std::min<int>(halfmove_clock_, static_cast<int>(key_history_.size()) - 1);
+    for (int offset = 1; offset <= reversible_plies; ++offset) {
+        size_t idx = key_history_.size() - 1 - static_cast<size_t>(offset);
+        if (key_history_[idx] == key_) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 //------------------------------------------------------------------------------

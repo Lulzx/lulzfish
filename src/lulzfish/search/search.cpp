@@ -45,6 +45,8 @@ void clear_search_state() {
 }
 
 int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0) {
+    if (ply > 0 && pos.is_repetition()) return 0;
+
     bool in_check = pos.is_check();
 
     int stand_pat = lulzfish::eval::graph::evaluate(pos);
@@ -112,6 +114,8 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0
 }
 
 int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_left, int ply) {
+    if (ply > 0 && pos.is_repetition()) return 0;
+
     if (depth <= 0) {
         return qsearch(pos, alpha, beta, 1, ply);
     }

@@ -70,6 +70,59 @@ bool validate_root_make_unmake(const std::string& fen) {
     return true;
 }
 
+std::string move_to_uci(Move move) {
+    std::string out;
+    out += static_cast<char>('a' + file_of(from_sq(move)));
+    out += static_cast<char>('1' + rank_of(from_sq(move)));
+    out += static_cast<char>('a' + file_of(to_sq(move)));
+    out += static_cast<char>('1' + rank_of(to_sq(move)));
+
+    if (is_promotion(move)) {
+        switch (promotion_type(move)) {
+            case PieceType::Knight: out += 'n'; break;
+            case PieceType::Bishop: out += 'b'; break;
+            case PieceType::Rook:   out += 'r'; break;
+            case PieceType::Queen:  out += 'q'; break;
+            default: break;
+        }
+    }
+
+    return out;
+}
+
+bool make_uci_move(Position& pos, const std::string& uci, StateInfo& undo, Move& made) {
+    MoveList moves;
+    generate_legal(pos, moves);
+    for (int i = 0; i < moves.size(); ++i) {
+        Move move = moves[i];
+        if (move_to_uci(move) == uci) {
+            pos.make_move(move, undo);
+            made = move;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool validate_repetition_history() {
+    Position pos;
+    std::vector<std::string> line = {"g1f3", "g8f6", "f3g1", "f6g8"};
+    std::vector<StateInfo> undos(line.size());
+    std::vector<Move> moves(line.size(), MOVE_NONE);
+
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (!make_uci_move(pos, line[i], undos[i], moves[i])) return false;
+    }
+
+    if (!pos.is_repetition()) return false;
+
+    for (size_t i = line.size(); i-- > 0;) {
+        pos.unmake_move(moves[i], undos[i]);
+    }
+
+    return !pos.is_repetition() && key_matches_fen(pos);
+}
+
 struct PerftTest {
     std::string name;
     std::string fen;
@@ -91,6 +144,14 @@ int main() {
     };
 
     bool all_passed = true;
+
+    std::cout << "Testing repetition history... ";
+    if (validate_repetition_history()) {
+        std::cout << "PASS\n";
+    } else {
+        all_passed = false;
+        std::cout << "FAIL\n";
+    }
 
     for (const auto& test : tests) {
         std::cout << "Testing " << test.name << " at depth " << test.depth << "... ";
