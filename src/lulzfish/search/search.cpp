@@ -31,6 +31,8 @@ static constexpr int ROOT_QUEENS_INDIAN_NC3_PENALTY = 50;
 static constexpr int ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS = 40;
 static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_GRAB_PENALTY = 140;
 static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS = 35;
+static constexpr int ROOT_OPEN_GAME_NC6_BONUS = 90;
+static constexpr int ROOT_OPEN_GAME_PETROFF_PENALTY = 90;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -269,9 +271,37 @@ int dutch_adjustment(const Position& pos, Move move) {
     return 0;
 }
 
+bool is_open_game_after_nf3(const Position& pos) {
+    if (pos.side_to_move() != Color::Black) return false;
+
+    return pos.piece_on(E4) == Piece::WhitePawn &&
+           pos.piece_on(E5) == Piece::BlackPawn &&
+           pos.piece_on(F3) == Piece::WhiteKnight &&
+           pos.piece_on(B8) == Piece::BlackKnight &&
+           pos.piece_on(G8) == Piece::BlackKnight &&
+           pos.piece_on(E8) == Piece::BlackKing &&
+           pos.fullmove_number() == 2;
+}
+
+int open_game_adjustment(const Position& pos, Move move) {
+    if (!is_open_game_after_nf3(pos)) return 0;
+
+    if (from_sq(move) == B8 && to_sq(move) == C6) {
+        return ROOT_OPEN_GAME_NC6_BONUS;
+    }
+    if (from_sq(move) == G8 && to_sq(move) == F6) {
+        return -ROOT_OPEN_GAME_PETROFF_PENALTY;
+    }
+
+    return 0;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
     if (mover == Piece::None) return 0;
+
+    int open_game_adj = open_game_adjustment(pos, move);
+    if (open_game_adj != 0) return open_game_adj;
 
     int slav_adjustment = slav_development_adjustment(pos, move);
     if (slav_adjustment != 0) return slav_adjustment;

@@ -77,6 +77,13 @@ int main() {
             {},
         },
         {
+            "Develop the queen knight in open games",
+            "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+            2,
+            {"b8c6"},
+            {"g8f6"},
+        },
+        {
             "Avoid a premature knight sortie",
             "rnbqkbnr/ppp2ppp/4p3/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 0 3",
             2,

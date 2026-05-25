@@ -19,10 +19,10 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 
 - Move generation and make/unmake pass the bundled standard perft suite in Release and Debug builds
 - Correct special move handling for the covered castling, en passant, and promotion positions
-- Scalar ray-scanned slider attacks as the correctness baseline; verified magic bitboards are the next optimization target
+- Verified magic-bitboard slider attacks with scalar ray scans kept as the correctness fallback
 - Material/PST/mobility/pawn-structure evaluator baseline with a relational graph overlay for attack pressure, king-ring safety, pawn shield, and outposts
 - Search: alpha-beta + iterative deepening + TT bounds/hash-move ordering + history + killers + SEE + Null Move + QSearch with bounded quiet checks + repetition scoring + root opening priors across the built-in 21-opening match suite + bounded check/root verification extensions
-- Search regression guardrails (15 positions covering development, center control, early knight sorties, Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
+- Search regression guardrails (16 positions covering development, center control, early knight sorties, Open Game/Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
 - `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches across a 21-opening built-in suite with capped-game material adjudication
 - Self-play with data recording (`selfplay_data.txt` for future ML training)
 - `perft_test` and `search_regression` build targets for correctness and strength guardrails
@@ -95,7 +95,7 @@ cmake --build . -j
 # Correctness: perft on standard positions (startpos, Kiwipete, etc.)
 ./perft_test
 
-# Strength guardrails: 12 search-regression positions
+# Strength guardrails: search-regression positions
 ./search_regression
 ```
 
