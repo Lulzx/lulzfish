@@ -112,6 +112,13 @@ int main() {
             {"c4d5", "d1a4", "b1d2", "b1c3"},
         },
         {
+            "Gain space against Reti c-pawn tension",
+            "rnbqkbnr/ppp1pppp/8/3p4/2P5/5N2/PP1PPPPP/RNBQKB1R b KQkq c3 0 2",
+            2,
+            {"d5d4"},
+            {"d5c4", "b8c6"},
+        },
+        {
             "Take the hanging queen",
             "4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1",
             2,

@@ -23,6 +23,7 @@ static constexpr int ROOT_BLOCKED_C_PAWN_PENALTY = 70;
 static constexpr int ROOT_PIRC_E_BREAK_BONUS = 110;
 static constexpr int ROOT_EARLY_SLAV_EXCHANGE_PENALTY = 50;
 static constexpr int ROOT_SLAV_DEVELOPMENT_BONUS = 45;
+static constexpr int ROOT_RETI_SPACE_BONUS = 140;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -124,6 +125,17 @@ int slav_development_adjustment(const Position& pos, Move move) {
     return 0;
 }
 
+bool is_reti_space_gain(const Position& pos, Move move) {
+    if (from_sq(move) != D5 || to_sq(move) != D4) return false;
+    if (pos.side_to_move() != Color::Black) return false;
+
+    return pos.piece_on(D5) == Piece::BlackPawn &&
+           pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(F3) == Piece::WhiteKnight &&
+           pos.piece_on(D2) == Piece::WhitePawn &&
+           pos.piece_on(C7) == Piece::BlackPawn;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
     if (mover == Piece::None) return 0;
@@ -137,6 +149,10 @@ int root_opening_adjustment(const Position& pos, Move move) {
 
     if (type_of(mover) != PieceType::Pawn) return 0;
     if (pos.piece_on(to_sq(move)) != Piece::None || is_en_passant(move) || is_promotion(move)) return 0;
+
+    if (is_reti_space_gain(pos, move)) {
+        return ROOT_RETI_SPACE_BONUS;
+    }
 
     if (is_pirc_e_break(pos, move)) {
         return ROOT_PIRC_E_BREAK_BONUS;
