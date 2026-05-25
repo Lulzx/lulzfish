@@ -6,7 +6,7 @@ cmake-build-*/
 *.so
 *.dylib
 *.exe
-lulzfish
+/lulzfish
 
 # IDE / editor
 .idea/
