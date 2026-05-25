@@ -154,6 +154,13 @@ int main() {
             {"d4c5"},
         },
         {
+            "Recapture with c-pawn in damaged Nimzo structure",
+            "r1bq1rk1/pp1n1ppp/4pn2/3p4/2Pp1B2/P1P1P3/2Q1BPPP/R3K1NR w KQ - 0 10",
+            2,
+            {"c3d4"},
+            {"g1f3", "e3d4"},
+        },
+        {
             "Develop naturally against Benoni tension",
             "rnbqkb1r/pp1p1ppp/4pn2/2pP4/2P5/8/PP2PPPP/RNBQKBNR w KQkq - 0 4",
             2,

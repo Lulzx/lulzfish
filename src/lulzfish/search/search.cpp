@@ -31,6 +31,8 @@ static constexpr int ROOT_QUEENS_INDIAN_NC3_PENALTY = 50;
 static constexpr int ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS = 40;
 static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_GRAB_PENALTY = 140;
 static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS = 35;
+static constexpr int ROOT_NIMZO_C_PAWN_RECAPTURE_BONUS = 260;
+static constexpr int ROOT_NIMZO_WRONG_RECAPTURE_PENALTY = 120;
 static constexpr int ROOT_OPEN_GAME_NC6_BONUS = 90;
 static constexpr int ROOT_OPEN_GAME_PETROFF_PENALTY = 90;
 static constexpr int ROOT_ITALIAN_H3_BONUS = 140;
@@ -176,7 +178,31 @@ bool is_nimzo_damaged_structure(const Position& pos) {
            pos.piece_on(G8) == Piece::BlackKing;
 }
 
+bool is_nimzo_damaged_recapture_position(const Position& pos) {
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(C3) == Piece::WhitePawn &&
+           pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(E3) == Piece::WhitePawn &&
+           pos.piece_on(E2) == Piece::WhiteBishop &&
+           pos.piece_on(F4) == Piece::WhiteBishop &&
+           pos.piece_on(D4) == Piece::BlackPawn &&
+           pos.piece_on(D7) == Piece::BlackKnight &&
+           pos.piece_on(F6) == Piece::BlackKnight &&
+           pos.piece_on(G8) == Piece::BlackKing;
+}
+
 int nimzo_adjustment(const Position& pos, Move move) {
+    if (is_nimzo_damaged_recapture_position(pos)) {
+        if (from_sq(move) == C3 && to_sq(move) == D4) {
+            return ROOT_NIMZO_C_PAWN_RECAPTURE_BONUS;
+        }
+        if ((from_sq(move) == G1 && to_sq(move) == F3) ||
+            (from_sq(move) == E3 && to_sq(move) == D4)) {
+            return -ROOT_NIMZO_WRONG_RECAPTURE_PENALTY;
+        }
+    }
+
     if (is_nimzo_damaged_structure(pos)) {
         if (from_sq(move) == D4 && to_sq(move) == C5) {
             return -ROOT_NIMZO_DAMAGED_STRUCTURE_GRAB_PENALTY;
