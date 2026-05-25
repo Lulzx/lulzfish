@@ -16,6 +16,9 @@ namespace lulzfish::search {
 static constexpr int MATE = 30000;
 static constexpr int INF  = 31000;
 static constexpr int MAX_PLY = 128;
+static constexpr int ROOT_KNIGHT_VERIFICATION_PENALTY = 60;
+static constexpr int ROOT_CENTER_PAWN_BONUS = 35;
+static constexpr int ROOT_WING_PAWN_PENALTY = 30;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -57,7 +60,29 @@ bool needs_root_knight_verification(const Position& pos, Move move) {
     if (is_promotion(move) || is_en_passant(move) || pos.piece_on(to_sq(move)) != Piece::None) return false;
 
     Color color = color_of(mover);
-    return relative_rank(to_sq(move), color) >= 4 && !has_advanced_center_pawn(pos, color);
+    return relative_rank(to_sq(move), color) >= 3 && !has_advanced_center_pawn(pos, color);
+}
+
+int root_opening_adjustment(const Position& pos, Move move) {
+    Piece mover = pos.piece_on(from_sq(move));
+    if (mover == Piece::None || type_of(mover) != PieceType::Pawn) return 0;
+    if (pos.piece_on(to_sq(move)) != Piece::None || is_en_passant(move) || is_promotion(move)) return 0;
+
+    Color color = color_of(mover);
+    bool has_center_pawn = has_advanced_center_pawn(pos, color);
+
+    int from_rel = relative_rank(from_sq(move), color);
+    int to_rel = relative_rank(to_sq(move), color);
+    if (from_rel != 1 || to_rel < 2) return 0;
+
+    int file = file_of(from_sq(move));
+    if (!has_center_pawn && (file == 3 || file == 4)) {
+        return to_rel >= 3 ? ROOT_CENTER_PAWN_BONUS : 0;
+    }
+    if ((file <= 1 || file >= 6) && pos.fullmove_number() <= 10) {
+        return -ROOT_WING_PAWN_PENALTY;
+    }
+    return 0;
 }
 
 } // namespace
@@ -303,10 +328,15 @@ SearchResult search_root_depth(Position& pos, int depth) {
     StateInfo undo;
     for (const auto& entry : ordered) {
         Move move = entry.second;
-        int extension = needs_root_knight_verification(pos, move) ? 1 : 0;
+        bool verify_knight = needs_root_knight_verification(pos, move);
+        int extension = verify_knight ? 1 : 0;
         pos.make_move(move, undo);
         int score = -alpha_beta(pos, child_depth + extension, -beta, -alpha, 1, 1);
         pos.unmake_move(move, undo);
+        score += root_opening_adjustment(pos, move);
+        if (verify_knight) {
+            score -= ROOT_KNIGHT_VERIFICATION_PENALTY;
+        }
 
         if (score > best_score) {
             best_score = score;
