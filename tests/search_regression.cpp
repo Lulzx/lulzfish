@@ -119,6 +119,20 @@ int main() {
             {"d5c4", "b8c6"},
         },
         {
+            "Use Samisch setup against Nimzo pressure",
+            "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4",
+            2,
+            {"f2f3"},
+            {"g1f3"},
+        },
+        {
+            "Develop naturally against Benoni tension",
+            "rnbqkb1r/pp1p1ppp/4pn2/2pP4/2P5/8/PP2PPPP/RNBQKBNR w KQkq - 0 4",
+            2,
+            {"b1c3"},
+            {"g1f3"},
+        },
+        {
             "Take the hanging queen",
             "4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1",
             2,

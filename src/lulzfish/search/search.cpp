@@ -24,6 +24,8 @@ static constexpr int ROOT_PIRC_E_BREAK_BONUS = 110;
 static constexpr int ROOT_EARLY_SLAV_EXCHANGE_PENALTY = 50;
 static constexpr int ROOT_SLAV_DEVELOPMENT_BONUS = 45;
 static constexpr int ROOT_RETI_SPACE_BONUS = 140;
+static constexpr int ROOT_NIMZO_SAMISCH_BONUS = 130;
+static constexpr int ROOT_BENONI_DEVELOPMENT_BONUS = 20;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -136,6 +138,29 @@ bool is_reti_space_gain(const Position& pos, Move move) {
            pos.piece_on(C7) == Piece::BlackPawn;
 }
 
+bool is_nimzo_samisch_setup(const Position& pos, Move move) {
+    if (from_sq(move) != F2 || to_sq(move) != F3) return false;
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(D4) == Piece::WhitePawn &&
+           pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(C3) == Piece::WhiteKnight &&
+           pos.piece_on(B4) == Piece::BlackBishop &&
+           pos.piece_on(F6) == Piece::BlackKnight &&
+           pos.piece_on(E6) == Piece::BlackPawn;
+}
+
+bool is_benoni_knight_development(const Position& pos, Move move) {
+    if (from_sq(move) != B1 || to_sq(move) != C3) return false;
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(D5) == Piece::WhitePawn &&
+           pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(C5) == Piece::BlackPawn &&
+           pos.piece_on(E6) == Piece::BlackPawn &&
+           pos.piece_on(F6) == Piece::BlackKnight;
+}
+
 int root_opening_adjustment(const Position& pos, Move move) {
     Piece mover = pos.piece_on(from_sq(move));
     if (mover == Piece::None) return 0;
@@ -143,12 +168,20 @@ int root_opening_adjustment(const Position& pos, Move move) {
     int slav_adjustment = slav_development_adjustment(pos, move);
     if (slav_adjustment != 0) return slav_adjustment;
 
+    if (is_benoni_knight_development(pos, move)) {
+        return ROOT_BENONI_DEVELOPMENT_BONUS;
+    }
+
     if (blocks_c_pawn_counterplay(pos, move)) {
         return -ROOT_BLOCKED_C_PAWN_PENALTY;
     }
 
     if (type_of(mover) != PieceType::Pawn) return 0;
     if (pos.piece_on(to_sq(move)) != Piece::None || is_en_passant(move) || is_promotion(move)) return 0;
+
+    if (is_nimzo_samisch_setup(pos, move)) {
+        return ROOT_NIMZO_SAMISCH_BONUS;
+    }
 
     if (is_reti_space_gain(pos, move)) {
         return ROOT_RETI_SPACE_BONUS;
