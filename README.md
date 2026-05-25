@@ -21,7 +21,7 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 - Correct special move handling for the covered castling, en passant, and promotion positions
 - Verified magic-bitboard slider attacks with scalar ray scans kept as the correctness fallback
 - Material/PST/mobility/pawn-structure evaluator baseline with a relational graph overlay for attack pressure, king-ring safety, pawn shield, and outposts
-- Search: alpha-beta + iterative deepening + TT bounds/hash-move ordering + history + killers + SEE + Null Move + QSearch with bounded quiet checks + repetition scoring + root opening priors across the built-in 21-opening match suite + bounded check/root verification extensions
+- Search: alpha-beta + iterative deepening + TT bounds/hash-move ordering + history + killers + SEE + Null Move + QSearch with bounded quiet checks + repetition scoring + root opening priors across the built-in 21-opening match suite + bounded check/root verification extensions + UCI `Threads` option for root-level parallel search
 - Search regression guardrails (19 positions covering development, center control, early knight sorties, Open Game/Italian/English/Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
 - `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches across a 21-opening built-in suite with capped-game material adjudication
 - `tools/lulzfish_gui.py` browser board backed by bulletchess legality checks and per-browser game sessions
@@ -85,6 +85,7 @@ Lightweight strength probes:
 python3 -m pip install bulletchess
 python3 tools/lulzfish_match.py --mode selfplay --engine ./build/lulzfish --games 4 --depth 2
 python3 tools/lulzfish_match.py --mode stockfish --engine ./build/lulzfish --stockfish /path/to/stockfish --games 10 --depth 2 --stockfish-depth 2 --material-adjudication 500
+python3 tools/run_stockfish_ladder.py --engine ./build/lulzfish --stockfish /path/to/stockfish --depth 5 --threads 4 --games-per-level 10
 ```
 
 Browser GUI:
