@@ -19,6 +19,8 @@ struct SearchLimits {
 struct SearchResult {
     int score = 0;
     core::Move best_move = core::MOVE_NONE;
+    core::Move pv[128] = {};
+    int pv_length = 0;
 };
 
 int search(Position& pos, SearchLimits limits);

@@ -78,7 +78,7 @@ public:
 
     // Incremental (delta) update hooks - the key to NNUE-like efficiency
     void apply_move(core::Move m, core::StateInfo& undo, const core::Position& pos_after);
-    void undo_move(core::Move m, const core::StateInfo& before);
+    void undo_move(core::Move m, const core::StateInfo& before, const core::Position& pos_after_undo);
 
     // Accessors for the evaluator
     const std::vector<PieceNode>& nodes() const { return nodes_; }
@@ -92,10 +92,14 @@ private:
     std::vector<PieceNode> nodes_;
     std::vector<Relation> relations_;
 
+    void refresh_nodes(const core::Position& pos);
     void rebuild_relations(const core::Position& pos); // fallback
+    void refresh_relations_after_changed_squares(const core::Position& pos,
+                                                 const std::vector<core::Square>& changed_squares);
 
     // Delta helpers (local rescans around changed squares)
     void remove_relations_involving(core::Square sq);
+    void remove_relations_from(core::Square sq);
     void add_relations_around(const core::Position& pos, core::Square sq);
 };
 

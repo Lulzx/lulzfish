@@ -11,11 +11,14 @@
 
 #include "lulzfish/core/movegen.hpp"
 #include "lulzfish/core/position.hpp"
+#include "lulzfish/core/attacks.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace lulzfish::core;
@@ -45,9 +48,43 @@ bool key_matches_fen(const Position& pos) {
     return rebuilt.key() == pos.key();
 }
 
+using RelationKey = std::tuple<int, int, int>;
+using NodeKey = std::pair<int, int>;
+
+std::vector<RelationKey> sorted_relation_keys(const lulzfish::eval::graph::PositionGraph& graph) {
+    std::vector<RelationKey> keys;
+    keys.reserve(graph.relation_count());
+    for (const auto& relation : graph.relations()) {
+        keys.emplace_back(static_cast<int>(relation.type),
+                          static_cast<int>(relation.from),
+                          static_cast<int>(relation.to));
+    }
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
+
+std::vector<NodeKey> sorted_node_keys(const lulzfish::eval::graph::PositionGraph& graph) {
+    std::vector<NodeKey> keys;
+    keys.reserve(graph.node_count());
+    for (const auto& node : graph.nodes()) {
+        keys.emplace_back(static_cast<int>(node.piece), static_cast<int>(node.square));
+    }
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
+
+bool graph_matches_rebuild(const Position& pos) {
+    lulzfish::eval::graph::PositionGraph rebuilt;
+    rebuilt.update_from_position(pos);
+
+    return sorted_node_keys(pos.graph()) == sorted_node_keys(rebuilt) &&
+           sorted_relation_keys(pos.graph()) == sorted_relation_keys(rebuilt);
+}
+
 bool validate_root_make_unmake(const std::string& fen) {
     Position pos(fen);
     if (!key_matches_fen(pos)) return false;
+    if (!graph_matches_rebuild(pos)) return false;
 
     MoveList moves;
     generate_legal(pos, moves);
@@ -60,9 +97,11 @@ bool validate_root_make_unmake(const std::string& fen) {
 
         pos.make_move(move, undo);
         if (!key_matches_fen(pos)) return false;
+        if (!graph_matches_rebuild(pos)) return false;
 
         pos.unmake_move(move, undo);
-        if (pos.key() != before_key || pos.fen() != before_fen || !key_matches_fen(pos)) {
+        if (pos.key() != before_key || pos.fen() != before_fen ||
+            !key_matches_fen(pos) || !graph_matches_rebuild(pos)) {
             return false;
         }
     }
@@ -123,6 +162,37 @@ bool validate_repetition_history() {
     return !pos.is_repetition() && key_matches_fen(pos);
 }
 
+bool validate_graph_sequence(const std::string& fen, const std::vector<std::string>& line) {
+    Position pos(fen);
+    if (!graph_matches_rebuild(pos)) return false;
+
+    std::vector<StateInfo> undos(line.size());
+    std::vector<Move> moves(line.size(), MOVE_NONE);
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (!make_uci_move(pos, line[i], undos[i], moves[i])) return false;
+        if (!graph_matches_rebuild(pos)) return false;
+    }
+
+    for (size_t i = line.size(); i-- > 0;) {
+        pos.unmake_move(moves[i], undos[i]);
+        if (!graph_matches_rebuild(pos)) return false;
+    }
+
+    return key_matches_fen(pos);
+}
+
+bool validate_incremental_graph() {
+    return validate_graph_sequence(
+               "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+               {"e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "g8f6", "e1g1"}) &&
+           validate_graph_sequence(
+               "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+               {"e2e4", "a7a6", "e4e5", "d7d5", "e5d6"}) &&
+           validate_graph_sequence(
+               "8/P7/8/8/8/8/7p/4K2k w - - 0 1",
+               {"a7a8q"});
+}
+
 struct PerftTest {
     std::string name;
     std::string fen;
@@ -144,6 +214,23 @@ int main() {
     };
 
     bool all_passed = true;
+
+    init_attack_tables();
+    std::cout << "Testing magic slider tables... ";
+    if (magic_tables_ready()) {
+        std::cout << "PASS\n";
+    } else {
+        all_passed = false;
+        std::cout << "FAIL\n";
+    }
+
+    std::cout << "Testing incremental graph equivalence... ";
+    if (validate_incremental_graph()) {
+        std::cout << "PASS\n";
+    } else {
+        all_passed = false;
+        std::cout << "FAIL\n";
+    }
 
     std::cout << "Testing repetition history... ";
     if (validate_repetition_history()) {

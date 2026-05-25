@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build-*/
 cmake-build-*/
 *.o
 *.a
@@ -21,6 +22,7 @@ Thumbs.db
 
 # Generated
 compile_commands.json
+__pycache__/
 
 # Data (large opening books, nets, tablebases — keep out of repo)
 *.bin

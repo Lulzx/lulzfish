@@ -128,6 +128,8 @@ public:
 
     void print() const;   // Human-readable board + state
 
+    [[nodiscard]] const lulzfish::eval::graph::PositionGraph& graph() const { return graph_; }
+
 private:
     //--------------------------------------------------------------------------
     // Internal State (keep this layout cache-friendly)

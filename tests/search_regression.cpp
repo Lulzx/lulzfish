@@ -119,11 +119,11 @@ int main() {
             {"d5c4", "b8c6"},
         },
         {
-            "Use Samisch setup against Nimzo pressure",
+            "Use safe setup against Nimzo pressure",
             "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4",
             2,
-            {"f2f3"},
-            {"g1f3"},
+            {"e2e3", "d1c2"},
+            {"f2f3", "g1f3"},
         },
         {
             "Develop naturally against Benoni tension",
@@ -145,6 +145,20 @@ int main() {
             2,
             {},
             {"g2g4"},
+        },
+        {
+            "Develop before counter-gambit in Dutch",
+            "rnbqkbnr/ppppp1pp/8/5p2/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 0 2",
+            2,
+            {"e7e6", "g7g6", "g8f6"},
+            {"e7e5"},
+        },
+        {
+            "Use natural setup against Queen's Indian",
+            "rnbqkb1r/p1pp1ppp/1p2pn2/8/2PP4/5N2/PP2PPPP/RNBQKB1R w KQkq - 0 4",
+            2,
+            {"g2g3", "a2a3", "e2e3"},
+            {"b1c3"},
         },
     };
 

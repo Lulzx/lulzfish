@@ -116,7 +116,11 @@ static void handle_go(const std::vector<std::string>& tokens) {
     generate_legal(current_position, moves);
 
     if (!moves.empty() && result.best_move != MOVE_NONE) {
-        std::cout << "info depth " << limits.depth << " score cp " << result.score << "\n";
+        std::cout << "info depth " << limits.depth << " score cp " << result.score << " pv";
+        for (int i = 0; i < result.pv_length; ++i) {
+            std::cout << " " << move_to_uci(result.pv[i]);
+        }
+        std::cout << "\n";
         std::cout << "bestmove " << move_to_uci(result.best_move) << "\n";
     } else {
         std::cout << "bestmove 0000\n";

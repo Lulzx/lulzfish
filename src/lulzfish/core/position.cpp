@@ -347,8 +347,7 @@ void Position::unmake_move(Move m, const StateInfo& undo) {
         --fullmove_number_;
     }
 
-    // Graph undo (currently conservative - can be made fully symmetric later)
-    graph_.undo_move(m, undo);
+    graph_.undo_move(m, undo, *this);
 }
 
 // Null move (for null-move pruning later)

@@ -24,8 +24,11 @@ static constexpr int ROOT_PIRC_E_BREAK_BONUS = 110;
 static constexpr int ROOT_EARLY_SLAV_EXCHANGE_PENALTY = 50;
 static constexpr int ROOT_SLAV_DEVELOPMENT_BONUS = 45;
 static constexpr int ROOT_RETI_SPACE_BONUS = 140;
-static constexpr int ROOT_NIMZO_SAMISCH_BONUS = 130;
 static constexpr int ROOT_BENONI_DEVELOPMENT_BONUS = 20;
+static constexpr int ROOT_DUTCH_GAMBIT_PENALTY = 100;
+static constexpr int ROOT_DUTCH_DEVELOPMENT_BONUS = 30;
+static constexpr int ROOT_QUEENS_INDIAN_NC3_PENALTY = 50;
+static constexpr int ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS = 40;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -138,16 +141,28 @@ bool is_reti_space_gain(const Position& pos, Move move) {
            pos.piece_on(C7) == Piece::BlackPawn;
 }
 
-bool is_nimzo_samisch_setup(const Position& pos, Move move) {
-    if (from_sq(move) != F2 || to_sq(move) != F3) return false;
+bool is_nimzo_position(const Position& pos) {
     if (pos.side_to_move() != Color::White) return false;
-
     return pos.piece_on(D4) == Piece::WhitePawn &&
            pos.piece_on(C4) == Piece::WhitePawn &&
            pos.piece_on(C3) == Piece::WhiteKnight &&
            pos.piece_on(B4) == Piece::BlackBishop &&
            pos.piece_on(F6) == Piece::BlackKnight &&
            pos.piece_on(E6) == Piece::BlackPawn;
+}
+
+int nimzo_adjustment(const Position& pos, Move move) {
+    if (!is_nimzo_position(pos)) return 0;
+
+    // Safer development: e3, Qc2
+    if (from_sq(move) == E2 && to_sq(move) == E3) return 60;
+    if (from_sq(move) == D1 && to_sq(move) == C2) return 60;
+
+    // Risky: f3, Nf3
+    if (from_sq(move) == F2 && to_sq(move) == F3) return -60;
+    if (from_sq(move) == G1 && to_sq(move) == F3) return -60;
+
+    return 0;
 }
 
 bool is_benoni_knight_development(const Position& pos, Move move) {
@@ -159,6 +174,68 @@ bool is_benoni_knight_development(const Position& pos, Move move) {
            pos.piece_on(C5) == Piece::BlackPawn &&
            pos.piece_on(E6) == Piece::BlackPawn &&
            pos.piece_on(F6) == Piece::BlackKnight;
+}
+
+bool is_dutch_gambit(const Position& pos, Move move) {
+    if (from_sq(move) != E7 || to_sq(move) != E5) return false;
+    if (pos.side_to_move() != Color::Black) return false;
+
+    return pos.piece_on(F5) == Piece::BlackPawn &&
+           pos.piece_on(D4) == Piece::WhitePawn &&
+           pos.piece_on(F3) == Piece::WhiteKnight &&
+           pos.piece_on(D2) == Piece::WhitePawn &&
+           pos.piece_on(E7) == Piece::BlackPawn &&
+           pos.piece_on(E8) == Piece::BlackKing &&
+           pos.fullmove_number() == 2;
+}
+
+bool is_queens_indian_position(const Position& pos) {
+    if (pos.side_to_move() != Color::White) return false;
+    return pos.piece_on(D4) == Piece::WhitePawn &&
+           pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(F3) == Piece::WhiteKnight &&
+           pos.piece_on(B6) == Piece::BlackPawn &&
+           pos.piece_on(F6) == Piece::BlackKnight &&
+           pos.piece_on(E6) == Piece::BlackPawn &&
+           pos.fullmove_number() == 4;
+}
+
+int queens_indian_adjustment(const Position& pos, Move move) {
+    if (!is_queens_indian_position(pos)) return 0;
+
+    if (from_sq(move) == G2 && to_sq(move) == G3) return ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS;
+    if (from_sq(move) == A2 && to_sq(move) == A3) return ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS;
+    if (from_sq(move) == E2 && to_sq(move) == E3) return ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS;
+
+    if (from_sq(move) == B1 && to_sq(move) == C3) return -ROOT_QUEENS_INDIAN_NC3_PENALTY;
+
+    return 0;
+}
+
+bool is_dutch_position(const Position& pos) {
+    if (pos.side_to_move() != Color::Black) return false;
+    return pos.piece_on(F5) == Piece::BlackPawn &&
+           pos.piece_on(D4) == Piece::WhitePawn &&
+           pos.piece_on(F3) == Piece::WhiteKnight &&
+           pos.fullmove_number() == 2;
+}
+
+int dutch_adjustment(const Position& pos, Move move) {
+    if (!is_dutch_position(pos)) return 0;
+
+    // Good development: e6, g6, Nf6
+    if (from_sq(move) == E7 && to_sq(move) == E6 && pos.piece_on(E7) == Piece::BlackPawn)
+        return ROOT_DUTCH_DEVELOPMENT_BONUS;
+    if (from_sq(move) == G7 && to_sq(move) == G6 && pos.piece_on(G7) == Piece::BlackPawn)
+        return ROOT_DUTCH_DEVELOPMENT_BONUS;
+    if (from_sq(move) == G8 && to_sq(move) == F6 && pos.piece_on(G8) == Piece::BlackKnight)
+        return ROOT_DUTCH_DEVELOPMENT_BONUS;
+
+    // Bad: e5 gambit
+    if (is_dutch_gambit(pos, move))
+        return -ROOT_DUTCH_GAMBIT_PENALTY;
+
+    return 0;
 }
 
 int root_opening_adjustment(const Position& pos, Move move) {
@@ -176,12 +253,17 @@ int root_opening_adjustment(const Position& pos, Move move) {
         return -ROOT_BLOCKED_C_PAWN_PENALTY;
     }
 
+    int qid_adjustment = queens_indian_adjustment(pos, move);
+    if (qid_adjustment != 0) return qid_adjustment;
+
+    int dutch_adj = dutch_adjustment(pos, move);
+    if (dutch_adj != 0) return dutch_adj;
+
+    int nimzo_adj = nimzo_adjustment(pos, move);
+    if (nimzo_adj != 0) return nimzo_adj;
+
     if (type_of(mover) != PieceType::Pawn) return 0;
     if (pos.piece_on(to_sq(move)) != Piece::None || is_en_passant(move) || is_promotion(move)) return 0;
-
-    if (is_nimzo_samisch_setup(pos, move)) {
-        return ROOT_NIMZO_SAMISCH_BONUS;
-    }
 
     if (is_reti_space_gain(pos, move)) {
         return ROOT_RETI_SPACE_BONUS;
@@ -208,6 +290,29 @@ int root_opening_adjustment(const Position& pos, Move move) {
     return 0;
 }
 
+void copy_pv(Move* dst, const Move* src) {
+    int i = 0;
+    for (; i < MAX_PLY && src[i] != MOVE_NONE; ++i) {
+        dst[i] = src[i];
+    }
+    if (i < MAX_PLY) {
+        dst[i] = MOVE_NONE;
+    }
+}
+
+void write_pv(Move* pv, Move move, const Move* child_pv) {
+    if (!pv) return;
+
+    pv[0] = move;
+    int out = 1;
+    for (; out < MAX_PLY && child_pv[out - 1] != MOVE_NONE; ++out) {
+        pv[out] = child_pv[out - 1];
+    }
+    if (out < MAX_PLY) {
+        pv[out] = MOVE_NONE;
+    }
+}
+
 } // namespace
 
 void clear_search_state() {
@@ -220,7 +325,9 @@ void clear_search_state() {
     }
 }
 
-int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0) {
+int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0, Move* pv = nullptr) {
+    if (pv) { pv[0] = MOVE_NONE; }
+
     if (ply > 0 && pos.is_repetition()) return 0;
 
     bool in_check = pos.is_check();
@@ -265,6 +372,7 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0
 
     std::sort(forcing.begin(), forcing.end()); // best (highest SEE) first
 
+    Move child_pv[MAX_PLY] = {};
     StateInfo undo;
 
     for (auto& p : forcing) {
@@ -279,21 +387,26 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0
             next_checks_left -= 1;
         }
 
-        int score = -qsearch(pos, -beta, -alpha, next_checks_left, ply + 1);
+        int score = -qsearch(pos, -beta, -alpha, next_checks_left, ply + 1, child_pv);
         pos.unmake_move(m, undo);
 
-        if (score > alpha) alpha = score;
+        if (score > alpha) {
+            alpha = score;
+            write_pv(pv, m, child_pv);
+        }
         if (alpha >= beta) break;
     }
 
     return alpha;
 }
 
-int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_left, int ply) {
+int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_left, int ply, Move* pv = nullptr) {
+    if (pv) { pv[0] = MOVE_NONE; }
+
     if (ply > 0 && pos.is_repetition()) return 0;
 
     if (depth <= 0) {
-        return qsearch(pos, alpha, beta, 1, ply);
+        return qsearch(pos, alpha, beta, 1, ply, pv);
     }
 
     bool in_check = pos.is_check();
@@ -316,7 +429,7 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
     if (!in_check && depth >= 3) {
         StateInfo undo;
         pos.make_null_move(undo);
-        int score = -alpha_beta(pos, depth - 1 - 2, -beta, -beta + 1, extensions_left, ply + 1); // R=2
+        int score = -alpha_beta(pos, depth - 1 - 2, -beta, -beta + 1, extensions_left, ply + 1);
         pos.unmake_null_move(undo);
         if (score >= beta) return beta;
     }
@@ -359,6 +472,8 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
     bool best_is_quiet = false;
     bool cutoff = false;
 
+    Move child_pv[MAX_PLY] = {};
+    Move best_child_pv[MAX_PLY] = {};
     StateInfo undo;
     for (size_t i = 0; i < ordered.size(); ++i) {
         Move m = ordered[i].second;
@@ -378,11 +493,11 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
             new_depth -= 1;
         }
 
-        int score = -alpha_beta(pos, new_depth, -beta, -alpha, child_extensions_left, ply + 1);
+        int score = -alpha_beta(pos, new_depth, -beta, -alpha, child_extensions_left, ply + 1, child_pv);
 
         // If reduced search fails high, re-search at full depth
         if (new_depth < depth - 1 && score > alpha) {
-            score = -alpha_beta(pos, depth - 1, -beta, -alpha, extensions_left, ply + 1);
+            score = -alpha_beta(pos, depth - 1, -beta, -alpha, extensions_left, ply + 1, child_pv);
         }
 
         pos.unmake_move(m, undo);
@@ -391,12 +506,19 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
             best = score;
             best_move = m;
             best_is_quiet = !is_capture && !is_promotion(m);
+            copy_pv(best_child_pv, child_pv);
         }
-        if (score > alpha) alpha = score;
+        if (score > alpha) {
+            alpha = score;
+        }
         if (alpha >= beta) {
             cutoff = true;
             break;
         }
+    }
+
+    if (pv && best_move) {
+        write_pv(pv, best_move, best_child_pv);
     }
 
     int flag = 0;
@@ -425,7 +547,10 @@ SearchResult search_root_depth(Position& pos, int depth) {
     generate_legal(pos, moves);
 
     if (moves.empty()) {
-        return {pos.is_check() ? -MATE : 0, MOVE_NONE};
+        SearchResult r;
+        r.score = pos.is_check() ? -MATE : 0;
+        r.best_move = MOVE_NONE;
+        return r;
     }
 
     std::vector<std::pair<int, Move>> ordered;
@@ -448,13 +573,15 @@ SearchResult search_root_depth(Position& pos, int depth) {
     Move best_move = ordered.front().second;
     int child_depth = std::max(0, depth - 1);
 
+    Move root_pv[MAX_PLY] = {};
+    Move child_pv[MAX_PLY] = {};
     StateInfo undo;
     for (const auto& entry : ordered) {
         Move move = entry.second;
         bool verify_knight = needs_root_knight_verification(pos, move);
         int extension = verify_knight ? 1 : 0;
         pos.make_move(move, undo);
-        int score = -alpha_beta(pos, child_depth + extension, -beta, -alpha, 1, 1);
+        int score = -alpha_beta(pos, child_depth + extension, -beta, -alpha, 1, 1, child_pv);
         pos.unmake_move(move, undo);
         score += root_opening_adjustment(pos, move);
         if (verify_knight) {
@@ -464,6 +591,7 @@ SearchResult search_root_depth(Position& pos, int depth) {
         if (score > best_score) {
             best_score = score;
             best_move = move;
+            write_pv(root_pv, move, child_pv);
         }
         if (score > alpha) {
             alpha = score;
@@ -471,7 +599,15 @@ SearchResult search_root_depth(Position& pos, int depth) {
     }
 
     tt.store(pos.key(), best_score, depth, 0, best_move);
-    return {best_score, best_move};
+
+    SearchResult result;
+    result.score = best_score;
+    result.best_move = best_move;
+    for (int i = 0; i < MAX_PLY && root_pv[i]; ++i) {
+        result.pv[i] = root_pv[i];
+        result.pv_length = i + 1;
+    }
+    return result;
 }
 
 } // namespace

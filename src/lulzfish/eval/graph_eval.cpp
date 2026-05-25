@@ -4,6 +4,7 @@
 #include "lulzfish/core/attacks.hpp"
 
 #include <algorithm>
+#include <vector>
 
 using namespace lulzfish::core;
 
@@ -66,6 +67,75 @@ bool is_passed_pawn(const Position& pos, Square sq, Color color) {
     }
 
     return true;
+}
+
+void add_unique_square(std::vector<Square>& squares, Square sq) {
+    if (sq == NoneSquare) return;
+    if (std::find(squares.begin(), squares.end(), sq) == squares.end()) {
+        squares.push_back(sq);
+    }
+}
+
+std::vector<Square> changed_squares_for_move(Move m, const StateInfo& state) {
+    std::vector<Square> squares;
+    squares.reserve(6);
+
+    Square from = from_sq(m);
+    Square to = to_sq(m);
+    add_unique_square(squares, from);
+    add_unique_square(squares, to);
+
+    if (is_en_passant(m)) {
+        Color us = color_of(state.moved_piece);
+        int dir = (us == Color::White) ? -8 : 8;
+        add_unique_square(squares, static_cast<Square>(static_cast<int>(to) + dir));
+    }
+
+    if (is_castling(m)) {
+        add_unique_square(squares, state.castling_rook_from);
+        add_unique_square(squares, state.castling_rook_to);
+    }
+
+    return squares;
+}
+
+void add_current_attackers(const Position& pos, Square sq, std::vector<Square>& sources) {
+    for (Color color : {Color::White, Color::Black}) {
+        Bitboard attackers = pos.attackers_to(sq, color);
+        while (attackers) {
+            add_unique_square(sources, lsb_square(attackers));
+            (void)pop_lsb(attackers);
+        }
+    }
+}
+
+void add_first_slider_on_rays(const Position& pos, Square sq, std::vector<Square>& sources) {
+    constexpr int DIRECTIONS[8][2] = {
+        {0, 1}, {0, -1}, {1, 0}, {-1, 0},
+        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}
+    };
+
+    int file = file_of(sq);
+    int rank = rank_of(sq);
+
+    for (const auto& direction : DIRECTIONS) {
+        bool orthogonal = direction[0] == 0 || direction[1] == 0;
+        for (int f = file + direction[0], r = rank + direction[1];
+             f >= 0 && f < 8 && r >= 0 && r < 8;
+             f += direction[0], r += direction[1]) {
+            Square ray_sq = make_square(f, r);
+            Piece piece = pos.piece_on(ray_sq);
+            if (piece == Piece::None) continue;
+
+            PieceType type = type_of(piece);
+            bool rook_like = type == PieceType::Rook || type == PieceType::Queen;
+            bool bishop_like = type == PieceType::Bishop || type == PieceType::Queen;
+            if ((orthogonal && rook_like) || (!orthogonal && bishop_like)) {
+                add_unique_square(sources, ray_sq);
+            }
+            break;
+        }
+    }
 }
 
 int non_pawn_material(const Position& pos) {
@@ -275,8 +345,8 @@ double get_graph_bias() { return g_graph_bias; }
 void set_graph_bias(double b) { g_graph_bias = b; }
 
 int evaluate(const Position& pos) {
-    PositionGraph graph;
-    graph.update_from_position(pos);
+    // Use the Position's incrementally maintained graph instead of rebuilding.
+    const PositionGraph& graph = pos.graph();
 
     int white_score = evaluate_color_baseline(pos, Color::White) -
                       evaluate_color_baseline(pos, Color::Black);
@@ -288,8 +358,12 @@ int evaluate(const Position& pos) {
 }
 
 void PositionGraph::update_from_position(const Position& pos) {
+    refresh_nodes(pos);
+    rebuild_relations(pos);
+}
+
+void PositionGraph::refresh_nodes(const Position& pos) {
     nodes_.clear();
-    relations_.clear();
 
     for (int p = 1; p < 13; ++p) {
         Piece piece = static_cast<Piece>(p);
@@ -300,8 +374,6 @@ void PositionGraph::update_from_position(const Position& pos) {
             (void)pop_lsb(bb);
         }
     }
-
-    rebuild_relations(pos);
 }
 
 void PositionGraph::rebuild_relations(const Position& pos) {
@@ -329,44 +401,40 @@ void PositionGraph::rebuild_relations(const Position& pos) {
 }
 
 void PositionGraph::apply_move(Move m, StateInfo& undo, const Position& pos_after) {
-    Square from = from_sq(m);
-    Square to   = to_sq(m);
-
-    // Record relations we are about to remove for exact undo
     undo.graph_removed_relations.clear();
-    for (const auto& rel : relations_) {
-        if (rel.from == from || rel.to == from || rel.from == to || rel.to == to) {
-            undo.graph_removed_relations.push_back(rel);
-        }
-    }
 
-    // Delta update: remove stale relations around changed squares
-    remove_relations_involving(from);
-    remove_relations_involving(to);
-
-    // Recompute local relations (much cheaper than full rebuild)
-    add_relations_around(pos_after, from);
-    add_relations_around(pos_after, to);
-
-    if (is_castling(m)) {
-        add_relations_around(pos_after, to);
-    }
+    refresh_nodes(pos_after);
+    refresh_relations_after_changed_squares(pos_after, changed_squares_for_move(m, undo));
 }
 
-void PositionGraph::undo_move(Move m, const StateInfo& before) {
-    Square from = from_sq(m);
-    Square to   = to_sq(m);
+void PositionGraph::undo_move(Move m, const StateInfo& before, const Position& pos_after_undo) {
+    refresh_nodes(pos_after_undo);
+    refresh_relations_after_changed_squares(pos_after_undo, changed_squares_for_move(m, before));
+}
 
-    // Fully symmetric undo: exactly restore what was removed in apply_move
-    remove_relations_involving(to);
-    remove_relations_involving(from);
+void PositionGraph::refresh_relations_after_changed_squares(
+    const Position& pos,
+    const std::vector<Square>& changed_squares) {
+    std::vector<Square> sources;
+    sources.reserve(32);
 
-    // Restore the exact relations that were present before the move
-    for (const auto& rel : before.graph_removed_relations) {
-        relations_.push_back(rel);
+    for (Square sq : changed_squares) {
+        if (pos.piece_on(sq) != Piece::None) {
+            add_unique_square(sources, sq);
+        }
+        add_current_attackers(pos, sq, sources);
+        add_first_slider_on_rays(pos, sq, sources);
     }
 
-    // For castling/ep/promotion edge cases, the recorded deltas handle it
+    for (Square sq : changed_squares) {
+        remove_relations_involving(sq);
+    }
+    for (Square source : sources) {
+        remove_relations_from(source);
+    }
+    for (Square source : sources) {
+        add_relations_around(pos, source);
+    }
 }
 
 void PositionGraph::remove_relations_involving(Square sq) {
@@ -376,12 +444,20 @@ void PositionGraph::remove_relations_involving(Square sq) {
         relations_.end());
 }
 
+void PositionGraph::remove_relations_from(Square sq) {
+    relations_.erase(
+        std::remove_if(relations_.begin(), relations_.end(),
+            [sq](const Relation& r){ return r.from == sq; }),
+        relations_.end());
+}
+
 void PositionGraph::add_relations_around(const Position& pos, Square sq) {
-    Color c = color_of(pos.piece_on(sq));
+    Piece piece = pos.piece_on(sq);
+    Color c = color_of(piece);
     if (c == Color::Both) return;
 
     Bitboard attacks = EmptyBB;
-    PieceType pt = type_of(pos.piece_on(sq));
+    PieceType pt = type_of(piece);
 
     if (pt == PieceType::Pawn)      attacks = pawn_attacks(sq, c);
     else if (pt == PieceType::Knight) attacks = knight_attacks_bb(sq);

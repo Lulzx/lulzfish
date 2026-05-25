@@ -21,14 +21,15 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 - Correct special move handling for the covered castling, en passant, and promotion positions
 - Scalar ray-scanned slider attacks as the correctness baseline; verified magic bitboards are the next optimization target
 - Material/PST/mobility/pawn-structure evaluator baseline with a relational graph overlay for attack pressure, king-ring safety, pawn shield, and outposts
-- Search prototype: alpha-beta + iterative deepening root search + bounded check/root verification extensions + root opening priors + TT bounds/hash move ordering + repetition scoring + QSearch with bounded quiet checks + Null Move + SEE + History/Killers
-- Search regression guardrails for basic development, center control, and tactical material capture
-- `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches across a broad built-in opening suite
-- Self-play with data recording (selfplay_data.txt for future ML training)
+- Search: alpha-beta + iterative deepening + TT bounds/hash-move ordering + history + killers + SEE + Null Move + QSearch with bounded quiet checks + repetition scoring + root opening priors across the built-in 21-opening match suite + bounded check/root verification extensions
+- Search regression guardrails (14 positions covering development, center control, early knight sorties, Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
+- `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches across a 21-opening built-in suite with capped-game material adjudication
+- Self-play with data recording (`selfplay_data.txt` for future ML training)
+- `perft_test` and `search_regression` build targets for correctness and strength guardrails
 
 The current priority is to keep correctness locked down while replacing scalar attack generation with measured, verified fast paths and turning the graph evaluator from a rebuilt-per-eval prototype into an actually incremental accumulator.
 
-Run it with any UCI GUI, but treat playing strength and training output as prototype-level until principal variation reporting and benchmark/match infrastructure are hardened.
+Run it with any UCI GUI.
 
 We are deliberately following a phased approach:
 
@@ -82,6 +83,23 @@ python3 -m pip install bulletchess
 python3 tools/lulzfish_match.py --mode selfplay --engine ./build/lulzfish --games 4 --depth 2
 python3 tools/lulzfish_match.py --mode stockfish --engine ./build/lulzfish --stockfish /path/to/stockfish --games 10 --depth 2 --stockfish-depth 2 --material-adjudication 500
 ```
+
+## Testing
+
+Lulzfish bundles two test executables built alongside the engine when `LULZFISH_BUILD_TESTS=ON` (default).
+
+```bash
+# Build (from the build directory)
+cmake --build . -j
+
+# Correctness: perft on standard positions (startpos, Kiwipete, etc.)
+./perft_test
+
+# Strength guardrails: 12 search-regression positions
+./search_regression
+```
+
+Both must pass in Release *and* Debug builds before any change touching movegen, search, or eval is considered safe.
 
 ## Philosophy & First Principles
 

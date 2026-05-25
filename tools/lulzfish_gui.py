@@ -2,7 +2,7 @@
 """
 Local browser GUI for playing against Lulzfish.
 
-The browser handles presentation only. python-chess is the referee, and the
+The browser handles presentation only. bulletchess is the referee, and the
 Lulzfish binary is used through UCI for engine moves.
 """
 
@@ -20,11 +20,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import chess
+    import bulletchess as bc
 except ImportError as exc:
     raise SystemExit(
-        "python-chess is required. Install it in a venv with: "
-        "python3 -m pip install python-chess"
+        "bulletchess is required. Install it in a venv with: "
+        "python3 -m pip install bulletchess"
     ) from exc
 
 
@@ -626,10 +626,35 @@ class Engine:
             self.proc.kill()
 
 
+def _status_and_result(board: bc.Board) -> tuple[str, str]:
+    if board in bc.CHECKMATE:
+        winner = "White" if board.turn is bc.BLACK else "Black"
+        return "Game over", f"{'1-0' if winner == 'White' else '0-1'} by checkmate"
+    if board in bc.STALEMATE:
+        return "Game over", "1/2-1/2 by stalemate"
+    if board in bc.THREEFOLD_REPETITION:
+        return "Game over", "1/2-1/2 by threefold repetition"
+    if board in bc.FIVEFOLD_REPETITION:
+        return "Game over", "1/2-1/2 by fivefold repetition"
+    if board in bc.FIFTY_MOVE_TIMEOUT:
+        return "Game over", "1/2-1/2 by fifty-move rule"
+    if board in bc.FORCED_DRAW or board in bc.DRAW:
+        return "Game over", "1/2-1/2 by draw"
+    return "", ""
+
+
+def _find_king_sq(board: bc.Board) -> bc.Square | None:
+    for sq in bc.SQUARES:
+        piece = board[sq]
+        if piece is not None and piece.piece_type == bc.KING and piece.color is board.turn:
+            return sq
+    return None
+
+
 class Game:
     def __init__(self, engine: Engine, depth: int, player_color: str):
         self.engine = engine
-        self.board = chess.Board()
+        self.board = bc.Board()
         self.moves: list[str] = []
         self.san: list[str] = []
         self.depth = depth
@@ -642,25 +667,28 @@ class Game:
 
     def engine_to_move(self) -> bool:
         engine_is_white = self.player_color == "black"
-        return self.board.turn == chess.WHITE if engine_is_white else self.board.turn == chess.BLACK
+        return self.board.turn is bc.WHITE if engine_is_white else self.board.turn is bc.BLACK
+
+    def is_game_over(self) -> bool:
+        return _status_and_result(self.board)[0] == "Game over"
 
     def player_to_move(self) -> bool:
-        return not self.board.is_game_over(claim_draw=True) and not self.engine_to_move()
+        return not self.is_game_over() and not self.engine_to_move()
 
     def play_engine_move(self) -> None:
-        if self.board.is_game_over(claim_draw=True):
+        if self.is_game_over():
             return
         move_text = self.engine.bestmove(self.moves, self.depth)
         if move_text == "0000":
             return
-        move = chess.Move.from_uci(move_text)
-        if move not in self.board.legal_moves:
+        move = bc.Move.from_uci(move_text)
+        if move not in self.board.legal_moves():
             raise ValueError(f"Lulzfish returned illegal move {move_text} in {self.board.fen()}")
         self.push(move)
 
-    def push(self, move: chess.Move) -> None:
-        self.san.append(self.board.san(move))
-        self.board.push(move)
+    def push(self, move: bc.Move) -> None:
+        self.san.append(move.san(self.board))
+        self.board.apply(move)
         self.last_move = move.uci()
         self.moves.append(self.last_move)
 
@@ -668,48 +696,42 @@ class Game:
         with self.lock:
             if not self.player_to_move():
                 raise ValueError("It is not your turn.")
-            move = chess.Move.from_uci(move_text)
-            if move not in self.board.legal_moves:
+            move = bc.Move.from_uci(move_text)
+            if move not in self.board.legal_moves():
                 raise ValueError(f"Illegal move: {move_text}")
             self.push(move)
-            if not self.board.is_game_over(claim_draw=True):
+            if not self.is_game_over():
                 self.play_engine_move()
 
     def state(self) -> dict[str, Any]:
         with self.lock:
             legal_moves = []
             if self.player_to_move():
-                legal_moves = [move.uci() for move in self.board.legal_moves]
+                legal_moves = [move.uci() for move in self.board.legal_moves()]
 
-            result = ""
-            if self.board.is_game_over(claim_draw=True):
-                outcome = self.board.outcome(claim_draw=True)
-                if outcome is not None:
-                    result = f"{self.board.result(claim_draw=True)} by {outcome.termination.name.lower().replace('_', ' ')}"
+            status, result = _status_and_result(self.board)
+            if not status:
+                if self.engine_to_move():
+                    status = "Lulzfish to move"
+                else:
+                    status = "Your move"
 
             board_map = {}
-            for square in chess.SQUARES:
-                piece = self.board.piece_at(square)
-                if piece:
-                    board_map[chess.square_name(square)] = piece.symbol()
+            for sq in bc.SQUARES:
+                piece = self.board[sq]
+                if piece is not None:
+                    board_map[str(sq).lower()] = str(piece)
 
             check_square = None
-            if self.board.is_check():
-                king_square = self.board.king(self.board.turn)
-                if king_square is not None:
-                    check_square = chess.square_name(king_square)
-
-            if result:
-                status = "Game over"
-            elif self.engine_to_move():
-                status = "Lulzfish to move"
-            else:
-                status = "Your move"
+            if self.board in bc.CHECK:
+                king_sq = _find_king_sq(self.board)
+                if king_sq is not None:
+                    check_square = str(king_sq).lower()
 
             return {
                 "board": board_map,
                 "legal_moves": legal_moves,
-                "turn": "white" if self.board.turn == chess.WHITE else "black",
+                "turn": "white" if self.board.turn is bc.WHITE else "black",
                 "player_color": self.player_color,
                 "depth": self.depth,
                 "moves": self.moves,
