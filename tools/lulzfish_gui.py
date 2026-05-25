@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from http import HTTPStatus
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,12 @@ except ImportError as exc:
         "bulletchess is required. Install it in a venv with: "
         "python3 -m pip install bulletchess"
     ) from exc
+
+
+SESSION_COOKIE = "lulzfish_session"
+SESSION_ID_BYTES = 24
+DEFAULT_SESSION_TTL_SECONDS = 12 * 60 * 60
+DEFAULT_MAX_SESSIONS = 128
 
 
 HTML = r"""<!doctype html>
@@ -661,7 +670,6 @@ class Game:
         self.player_color = player_color
         self.last_move: str | None = None
         self.lock = threading.Lock()
-        self.engine.newgame()
         if self.engine_to_move():
             self.play_engine_move()
 
@@ -744,26 +752,124 @@ class Game:
             }
 
 
+@dataclass
+class GameSession:
+    game: Game
+    last_seen: float
+
+
 class App:
-    def __init__(self, engine_path: str, depth: int, player_color: str):
+    def __init__(
+        self,
+        engine_path: str,
+        depth: int,
+        player_color: str,
+        session_ttl_seconds: int,
+        max_sessions: int,
+    ):
         self.engine = Engine(engine_path)
-        self.game = Game(self.engine, depth, player_color)
+        self.engine.newgame()
+        self.default_depth = depth
+        self.default_player_color = player_color
+        self.session_ttl_seconds = max(60, session_ttl_seconds)
+        self.max_sessions = max(1, max_sessions)
+        self.sessions: dict[str, GameSession] = {}
         self.lock = threading.Lock()
 
-    def new_game(self, depth: int, player_color: str) -> dict[str, Any]:
+    @staticmethod
+    def valid_session_id(session_id: str | None) -> bool:
+        if not session_id or len(session_id) > 128:
+            return False
+        return all(ch.isalnum() or ch in {"-", "_"} for ch in session_id)
+
+    def _new_session_id_locked(self) -> str:
+        while True:
+            session_id = secrets.token_urlsafe(SESSION_ID_BYTES)
+            if session_id not in self.sessions:
+                return session_id
+
+    def _prune_sessions_locked(self, now: float) -> None:
+        expired = [
+            session_id
+            for session_id, session in self.sessions.items()
+            if now - session.last_seen > self.session_ttl_seconds
+        ]
+        for session_id in expired:
+            del self.sessions[session_id]
+
+    def _enforce_session_cap_locked(self, protected_session_id: str) -> None:
+        overflow = len(self.sessions) - self.max_sessions
+        if overflow <= 0:
+            return
+
+        candidates = [
+            item for item in self.sessions.items() if item[0] != protected_session_id
+        ]
+        oldest = sorted(candidates, key=lambda item: item[1].last_seen)
+        for session_id, _ in oldest[:overflow]:
+            del self.sessions[session_id]
+
+    def _make_game(self, depth: int | None = None, player_color: str | None = None) -> Game:
+        return Game(
+            self.engine,
+            self.default_depth if depth is None else depth,
+            self.default_player_color if player_color is None else player_color,
+        )
+
+    def game_for_session(self, session_id: str | None) -> tuple[str, Game]:
+        now = time.time()
         with self.lock:
-            self.game = Game(self.engine, depth, player_color)
-            return self.game.state()
+            self._prune_sessions_locked(now)
+            if not self.valid_session_id(session_id) or session_id not in self.sessions:
+                session_id = self._new_session_id_locked()
+                self.sessions[session_id] = GameSession(self._make_game(), now)
+            else:
+                self.sessions[session_id].last_seen = now
+            self._enforce_session_cap_locked(session_id)
+            return session_id, self.sessions[session_id].game
+
+    def state_for_session(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
+        session_id, game = self.game_for_session(session_id)
+        return session_id, game.state()
+
+    def new_game(self, session_id: str | None, depth: int, player_color: str) -> tuple[str, dict[str, Any]]:
+        now = time.time()
+        with self.lock:
+            self._prune_sessions_locked(now)
+            if not self.valid_session_id(session_id) or session_id not in self.sessions:
+                session_id = self._new_session_id_locked()
+            self.sessions[session_id] = GameSession(self._make_game(depth, player_color), now)
+            self._enforce_session_cap_locked(session_id)
+            game = self.sessions[session_id].game
+        return session_id, game.state()
+
+    def make_move(self, session_id: str | None, move: str) -> tuple[str, dict[str, Any]]:
+        session_id, game = self.game_for_session(session_id)
+        game.make_player_move(move)
+        return session_id, game.state()
 
     def close(self) -> None:
         self.engine.close()
 
 
-def json_response(handler: BaseHTTPRequestHandler, status: HTTPStatus, payload: dict[str, Any]) -> None:
+def session_cookie_header(session_id: str, max_age: int) -> str:
+    return f"{SESSION_COOKIE}={session_id}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax"
+
+
+def json_response(
+    handler: BaseHTTPRequestHandler,
+    status: HTTPStatus,
+    payload: dict[str, Any],
+    *,
+    session_id: str | None = None,
+    session_max_age: int = DEFAULT_SESSION_TTL_SECONDS,
+) -> None:
     body = json.dumps(payload).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(body)))
+    if session_id is not None:
+        handler.send_header("Set-Cookie", session_cookie_header(session_id, session_max_age))
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -773,46 +879,85 @@ def make_handler(app: App):
         def log_message(self, fmt: str, *args: Any) -> None:
             sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-        def serve_index(self, include_body: bool) -> None:
+        def route_path(self) -> str:
+            return self.path.split("?", 1)[0]
+
+        def request_session_id(self) -> str | None:
+            try:
+                cookie = SimpleCookie(self.headers.get("Cookie", ""))
+            except CookieError:
+                return None
+            morsel = cookie.get(SESSION_COOKIE)
+            if morsel is None:
+                return None
+            return morsel.value
+
+        def serve_index(self, include_body: bool, session_id: str | None = None) -> None:
             body = HTML.encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            if session_id is not None:
+                self.send_header("Set-Cookie", session_cookie_header(session_id, app.session_ttl_seconds))
             self.end_headers()
             if include_body:
                 self.wfile.write(body)
 
         def do_HEAD(self) -> None:
-            if self.path == "/" or self.path == "/index.html":
+            path = self.route_path()
+            if path == "/" or path == "/index.html":
                 self.serve_index(include_body=False)
                 return
             self.send_response(HTTPStatus.NOT_FOUND)
             self.end_headers()
 
         def do_GET(self) -> None:
-            if self.path == "/" or self.path == "/index.html":
-                self.serve_index(include_body=True)
+            path = self.route_path()
+            if path == "/" or path == "/index.html":
+                session_id, _ = app.game_for_session(self.request_session_id())
+                self.serve_index(include_body=True, session_id=session_id)
                 return
-            if self.path == "/api/state":
-                json_response(self, HTTPStatus.OK, app.game.state())
+            if path == "/api/state":
+                session_id, payload = app.state_for_session(self.request_session_id())
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    payload,
+                    session_id=session_id,
+                    session_max_age=app.session_ttl_seconds,
+                )
                 return
             json_response(self, HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
         def do_POST(self) -> None:
             try:
+                path = self.route_path()
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length) or b"{}")
-                if self.path == "/api/new":
+                if path == "/api/new":
                     color = payload.get("player_color", "white")
                     if color not in {"white", "black"}:
                         raise ValueError("player_color must be white or black")
                     depth = max(1, min(5, int(payload.get("depth", 2))))
-                    json_response(self, HTTPStatus.OK, app.new_game(depth, color))
+                    session_id, state = app.new_game(self.request_session_id(), depth, color)
+                    json_response(
+                        self,
+                        HTTPStatus.OK,
+                        state,
+                        session_id=session_id,
+                        session_max_age=app.session_ttl_seconds,
+                    )
                     return
-                if self.path == "/api/move":
+                if path == "/api/move":
                     move = str(payload.get("uci", ""))
-                    app.game.make_player_move(move)
-                    json_response(self, HTTPStatus.OK, app.game.state())
+                    session_id, state = app.make_move(self.request_session_id(), move)
+                    json_response(
+                        self,
+                        HTTPStatus.OK,
+                        state,
+                        session_id=session_id,
+                        session_max_age=app.session_ttl_seconds,
+                    )
                     return
                 json_response(self, HTTPStatus.NOT_FOUND, {"error": "Not found"})
             except Exception as exc:
@@ -828,13 +973,21 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--color", choices=["white", "black"], default="white")
+    parser.add_argument("--session-ttl", type=int, default=DEFAULT_SESSION_TTL_SECONDS)
+    parser.add_argument("--max-sessions", type=int, default=DEFAULT_MAX_SESSIONS)
     args = parser.parse_args()
 
     engine_path = str(Path(args.engine).resolve())
     if not Path(engine_path).exists():
         raise SystemExit(f"Engine not found: {engine_path}")
 
-    app = App(engine_path, max(1, min(5, args.depth)), args.color)
+    app = App(
+        engine_path,
+        max(1, min(5, args.depth)),
+        args.color,
+        args.session_ttl,
+        args.max_sessions,
+    )
     server = ThreadingHTTPServer((args.host, args.port), make_handler(app))
     print(f"Lulzfish GUI: http://{args.host}:{args.port}")
     try:

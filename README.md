@@ -24,6 +24,7 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 - Search: alpha-beta + iterative deepening + TT bounds/hash-move ordering + history + killers + SEE + Null Move + QSearch with bounded quiet checks + repetition scoring + root opening priors across the built-in 21-opening match suite + bounded check/root verification extensions
 - Search regression guardrails (19 positions covering development, center control, early knight sorties, Open Game/Italian/English/Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
 - `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches across a 21-opening built-in suite with capped-game material adjudication
+- `tools/lulzfish_gui.py` browser board backed by bulletchess legality checks and per-browser game sessions
 - Self-play with data recording (`selfplay_data.txt` for future ML training)
 - `perft_test` and `search_regression` build targets for correctness and strength guardrails
 
@@ -83,6 +84,15 @@ python3 -m pip install bulletchess
 python3 tools/lulzfish_match.py --mode selfplay --engine ./build/lulzfish --games 4 --depth 2
 python3 tools/lulzfish_match.py --mode stockfish --engine ./build/lulzfish --stockfish /path/to/stockfish --games 10 --depth 2 --stockfish-depth 2 --material-adjudication 500
 ```
+
+Browser GUI:
+
+```bash
+python3 -m pip install bulletchess
+python3 tools/lulzfish_gui.py --engine ./build/lulzfish --port 8765
+```
+
+Each browser gets an isolated session cookie and game state; engine searches are serialized through the UCI process.
 
 ## Testing
 
