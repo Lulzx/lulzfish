@@ -29,6 +29,8 @@ static constexpr int ROOT_DUTCH_GAMBIT_PENALTY = 100;
 static constexpr int ROOT_DUTCH_DEVELOPMENT_BONUS = 30;
 static constexpr int ROOT_QUEENS_INDIAN_NC3_PENALTY = 50;
 static constexpr int ROOT_QUEENS_INDIAN_DEVELOPMENT_BONUS = 40;
+static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_GRAB_PENALTY = 140;
+static constexpr int ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS = 35;
 
 static TranspositionTable tt(16); // 16MB TT
 
@@ -151,7 +153,36 @@ bool is_nimzo_position(const Position& pos) {
            pos.piece_on(E6) == Piece::BlackPawn;
 }
 
+bool is_nimzo_damaged_structure(const Position& pos) {
+    if (pos.side_to_move() != Color::White) return false;
+
+    return pos.piece_on(C3) == Piece::WhitePawn &&
+           pos.piece_on(C4) == Piece::WhitePawn &&
+           pos.piece_on(D4) == Piece::WhitePawn &&
+           pos.piece_on(E1) == Piece::WhiteKing &&
+           pos.piece_on(F1) == Piece::WhiteBishop &&
+           pos.piece_on(C5) == Piece::BlackPawn &&
+           pos.piece_on(E6) == Piece::BlackPawn &&
+           pos.piece_on(F6) == Piece::BlackKnight &&
+           pos.piece_on(G8) == Piece::BlackKing;
+}
+
 int nimzo_adjustment(const Position& pos, Move move) {
+    if (is_nimzo_damaged_structure(pos)) {
+        if (from_sq(move) == D4 && to_sq(move) == C5) {
+            return -ROOT_NIMZO_DAMAGED_STRUCTURE_GRAB_PENALTY;
+        }
+        if (from_sq(move) == E2 && to_sq(move) == E3) {
+            return ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS;
+        }
+        if (from_sq(move) == F1 && (to_sq(move) == D3 || to_sq(move) == E2)) {
+            return ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS;
+        }
+        if (from_sq(move) == C1 && (to_sq(move) == G5 || to_sq(move) == F4 || to_sq(move) == E3)) {
+            return ROOT_NIMZO_DAMAGED_STRUCTURE_DEVELOPMENT_BONUS;
+        }
+    }
+
     if (!is_nimzo_position(pos)) return 0;
 
     // Safer development: e3, Qc2

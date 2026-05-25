@@ -22,7 +22,7 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 - Scalar ray-scanned slider attacks as the correctness baseline; verified magic bitboards are the next optimization target
 - Material/PST/mobility/pawn-structure evaluator baseline with a relational graph overlay for attack pressure, king-ring safety, pawn shield, and outposts
 - Search: alpha-beta + iterative deepening + TT bounds/hash-move ordering + history + killers + SEE + Null Move + QSearch with bounded quiet checks + repetition scoring + root opening priors across the built-in 21-opening match suite + bounded check/root verification extensions
-- Search regression guardrails (14 positions covering development, center control, early knight sorties, Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
+- Search regression guardrails (15 positions covering development, center control, early knight sorties, Slav/Reti/Nimzo/Benoni/Pirc/Dutch/Queen's Indian structures, tactical capture, and poisoned pawn avoidance)
 - `tools/lulzfish_match.py` for repeatable lightweight self-play and Stockfish smoke matches across a 21-opening built-in suite with capped-game material adjudication
 - Self-play with data recording (`selfplay_data.txt` for future ML training)
 - `perft_test` and `search_regression` build targets for correctness and strength guardrails

@@ -126,6 +126,13 @@ int main() {
             {"f2f3", "g1f3"},
         },
         {
+            "Avoid pawn-grabbing with damaged Nimzo structure",
+            "r1bq1rk1/pp1p1ppp/2n1pn2/2p5/2PP4/P1P2N2/2Q1PPPP/R1B1KB1R w KQ - 2 8",
+            2,
+            {},
+            {"d4c5"},
+        },
+        {
             "Develop naturally against Benoni tension",
             "rnbqkb1r/pp1p1ppp/4pn2/2pP4/2P5/8/PP2PPPP/RNBQKBNR w KQkq - 0 4",
             2,
