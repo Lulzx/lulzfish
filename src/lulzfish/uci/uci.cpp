@@ -4,9 +4,12 @@
 #include "lulzfish/core/position.hpp"
 #include "lulzfish/search/search.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace lulzfish::core;
@@ -16,6 +19,16 @@ namespace lulzfish::uci {
 
 static Position current_position;
 static bool position_set = false;
+static int search_threads = 1;
+
+static int max_search_threads() {
+    unsigned count = std::thread::hardware_concurrency();
+    if (count == 0) return 1;
+    if (count > static_cast<unsigned>(std::numeric_limits<int>::max())) {
+        return std::numeric_limits<int>::max();
+    }
+    return static_cast<int>(count);
+}
 
 static std::string move_to_uci(Move move) {
     Square from = from_sq(move);
@@ -59,6 +72,8 @@ static bool apply_uci_move(Position& pos, const std::string& move_text) {
 static void handle_uci() {
     std::cout << "id name Lulzfish 0.5.0 (Verified Baseline)\n";
     std::cout << "id author lulz-chess project\n";
+    std::cout << "option name Threads type spin default 1 min 1 max "
+              << max_search_threads() << "\n";
     std::cout << "uciok\n";
 }
 
@@ -95,6 +110,37 @@ static void handle_position(const std::vector<std::string>& tokens) {
     position_set = true;
 }
 
+static void handle_setoption(const std::vector<std::string>& tokens) {
+    std::string name;
+    std::string value;
+    bool reading_name = false;
+    bool reading_value = false;
+
+    for (size_t i = 1; i < tokens.size(); ++i) {
+        if (tokens[i] == "name") {
+            reading_name = true;
+            reading_value = false;
+            continue;
+        }
+        if (tokens[i] == "value") {
+            reading_name = false;
+            reading_value = true;
+            continue;
+        }
+        if (reading_name) {
+            if (!name.empty()) name += ' ';
+            name += tokens[i];
+        } else if (reading_value) {
+            if (!value.empty()) value += ' ';
+            value += tokens[i];
+        }
+    }
+
+    if (name == "Threads" && !value.empty()) {
+        search_threads = std::clamp(std::stoi(value), 1, max_search_threads());
+    }
+}
+
 static void handle_go(const std::vector<std::string>& tokens) {
     if (!position_set) {
         current_position.set_startpos();
@@ -103,6 +149,7 @@ static void handle_go(const std::vector<std::string>& tokens) {
 
     SearchLimits limits;
     limits.depth = 4;
+    limits.threads = search_threads;
 
     for (size_t i = 1; i < tokens.size(); ++i) {
         if (tokens[i] == "depth" && i + 1 < tokens.size()) {
@@ -141,6 +188,8 @@ void loop() {
             handle_uci();
         } else if (tokens[0] == "isready") {
             handle_isready();
+        } else if (tokens[0] == "setoption") {
+            handle_setoption(tokens);
         } else if (tokens[0] == "position") {
             handle_position(tokens);
         } else if (tokens[0] == "go") {

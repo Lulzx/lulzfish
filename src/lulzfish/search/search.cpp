@@ -4,9 +4,13 @@
 #include "lulzfish/eval/graph_eval.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#ifndef __EMSCRIPTEN__
+#include <thread>
+#endif
 #include <vector>
 
 using namespace lulzfish::core;
@@ -43,11 +47,11 @@ static constexpr int ROOT_ENGLISH_IMMEDIATE_D4_PENALTY = 90;
 static constexpr int ROOT_ENGLISH_IMMEDIATE_E4_PENALTY = 120;
 static constexpr int ROOT_ENGLISH_NF3_PENALTY = 120;
 
-static TranspositionTable tt(16); // 16MB TT
+thread_local TranspositionTable tt(16); // 16MB TT per search thread
 
 // Simple history and killer tables for move ordering (on top of SEE)
-static int history[64][64] = {};
-static Move killers[MAX_PLY][2] = {};  // [ply][slot]
+thread_local int history[64][64] = {};
+thread_local Move killers[MAX_PLY][2] = {};  // [ply][slot]
 
 namespace {
 
@@ -708,19 +712,24 @@ int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_lef
 
 namespace {
 
-SearchResult search_root_depth(Position& pos, int depth) {
+struct RootMove {
+    int order = 0;
+    Move move = MOVE_NONE;
+};
+
+struct RootMoveResult {
+    int order = 0;
+    Move move = MOVE_NONE;
+    int score = -INF;
+    Move pv[MAX_PLY] = {};
+};
+
+std::vector<RootMove> ordered_root_moves(Position& pos) {
     MoveList moves;
     generate_legal(pos, moves);
 
-    if (moves.empty()) {
-        SearchResult r;
-        r.score = pos.is_check() ? -MATE : 0;
-        r.best_move = MOVE_NONE;
-        return r;
-    }
-
-    std::vector<std::pair<int, Move>> ordered;
-    ordered.reserve(static_cast<size_t>(moves.size()));
+    std::vector<std::pair<int, Move>> scored;
+    scored.reserve(static_cast<size_t>(moves.size()));
     Move tt_move = MOVE_NONE;
     if (TTEntry* entry = tt.probe(pos.key())) {
         tt_move = entry->best_move;
@@ -729,21 +738,61 @@ SearchResult search_root_depth(Position& pos, int depth) {
         Move m = moves[i];
         int val = lulzfish::core::capture_value(pos, m) + lulzfish::core::see(pos, to_sq(m));
         if (m == tt_move) val += 20000;
-        ordered.emplace_back(-val, m);
+        scored.emplace_back(-val, m);
     }
-    std::sort(ordered.begin(), ordered.end());
+    std::sort(scored.begin(), scored.end());
 
+    std::vector<RootMove> ordered;
+    ordered.reserve(scored.size());
+    for (size_t i = 0; i < scored.size(); ++i) {
+        ordered.push_back(RootMove{static_cast<int>(i), scored[i].second});
+    }
+    return ordered;
+}
+
+SearchResult empty_root_result(Position& pos) {
+    SearchResult r;
+    r.score = pos.is_check() ? -MATE : 0;
+    r.best_move = MOVE_NONE;
+    return r;
+}
+
+[[maybe_unused]] RootMoveResult search_one_root_move(const Position& root_pos, const RootMove& root, int child_depth) {
+    Position pos = root_pos;
+    Move child_pv[MAX_PLY] = {};
+    StateInfo undo;
+    Move move = root.move;
+    bool verify_knight = needs_root_knight_verification(pos, move);
+    int extension = verify_knight ? 1 : 0;
+
+    pos.make_move(move, undo);
+    int score = -alpha_beta(pos, child_depth + extension, -INF, INF, 1, 1, child_pv);
+    pos.unmake_move(move, undo);
+    score += root_opening_adjustment(pos, move);
+    if (verify_knight) {
+        score -= ROOT_KNIGHT_VERIFICATION_PENALTY;
+    }
+
+    RootMoveResult result;
+    result.order = root.order;
+    result.move = move;
+    result.score = score;
+    write_pv(result.pv, move, child_pv);
+    return result;
+}
+
+SearchResult search_root_depth_serial(Position& pos, int depth, const std::vector<RootMove>& ordered) {
     int alpha = -INF;
     int beta = INF;
     int best_score = -INF;
-    Move best_move = ordered.front().second;
+    Move best_move = ordered.front().move;
     int child_depth = std::max(0, depth - 1);
 
     Move root_pv[MAX_PLY] = {};
     Move child_pv[MAX_PLY] = {};
     StateInfo undo;
-    for (const auto& entry : ordered) {
-        Move move = entry.second;
+    for (const RootMove& root : ordered) {
+        Move move = root.move;
         bool verify_knight = needs_root_knight_verification(pos, move);
         int extension = verify_knight ? 1 : 0;
         pos.make_move(move, undo);
@@ -776,15 +825,75 @@ SearchResult search_root_depth(Position& pos, int depth) {
     return result;
 }
 
+SearchResult search_root_depth_parallel(Position& pos, int depth, const std::vector<RootMove>& ordered, int requested_threads) {
+#ifdef __EMSCRIPTEN__
+    (void)requested_threads;
+    return search_root_depth_serial(pos, depth, ordered);
+#else
+    int worker_count = std::max(1, std::min(requested_threads, static_cast<int>(ordered.size())));
+    if (worker_count <= 1 || ordered.size() <= 1) {
+        return search_root_depth_serial(pos, depth, ordered);
+    }
+
+    int child_depth = std::max(0, depth - 1);
+    std::atomic<size_t> next_index{0};
+    std::vector<RootMoveResult> results(ordered.size());
+    std::vector<std::thread> workers;
+    workers.reserve(static_cast<size_t>(worker_count));
+
+    for (int worker = 0; worker < worker_count; ++worker) {
+        workers.emplace_back([&, child_depth] {
+            while (true) {
+                size_t index = next_index.fetch_add(1, std::memory_order_relaxed);
+                if (index >= ordered.size()) break;
+                results[index] = search_one_root_move(pos, ordered[index], child_depth);
+            }
+        });
+    }
+
+    for (std::thread& worker : workers) {
+        worker.join();
+    }
+
+    RootMoveResult best = results.front();
+    for (const RootMoveResult& result : results) {
+        if (result.score > best.score ||
+            (result.score == best.score && result.order < best.order)) {
+            best = result;
+        }
+    }
+
+    tt.store(pos.key(), best.score, depth, 0, best.move);
+
+    SearchResult result;
+    result.score = best.score;
+    result.best_move = best.move;
+    for (int i = 0; i < MAX_PLY && best.pv[i]; ++i) {
+        result.pv[i] = best.pv[i];
+        result.pv_length = i + 1;
+    }
+    return result;
+#endif
+}
+
+SearchResult search_root_depth(Position& pos, int depth, int threads) {
+    std::vector<RootMove> ordered = ordered_root_moves(pos);
+    if (ordered.empty()) {
+        return empty_root_result(pos);
+    }
+    return search_root_depth_parallel(pos, depth, ordered, threads);
+}
+
 } // namespace
 
 SearchResult search_root(Position& pos, SearchLimits limits) {
     int max_depth = std::max(1, limits.depth);
+    int threads = std::max(1, limits.threads);
     SearchResult result;
 
     // Iterative deepening seeds the TT/hash move for deeper root searches.
     for (int depth = 1; depth <= max_depth; ++depth) {
-        result = search_root_depth(pos, depth);
+        result = search_root_depth(pos, depth, threads);
     }
 
     return result;

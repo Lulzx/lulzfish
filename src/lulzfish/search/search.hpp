@@ -13,6 +13,7 @@ namespace lulzfish::search {
 
 struct SearchLimits {
     int depth = 4;
+    int threads = 1;
     // time, nodes, etc. can be added later
 };
 
