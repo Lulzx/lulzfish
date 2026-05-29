@@ -53,6 +53,24 @@ thread_local TranspositionTable tt(16); // 16MB TT per search thread
 thread_local int history[64][64] = {};
 thread_local Move killers[MAX_PLY][2] = {};  // [ply][slot]
 
+std::atomic<std::uint64_t> g_nodes_searched{0};
+
+std::uint64_t nodes_searched() {
+    return g_nodes_searched.load(std::memory_order_relaxed);
+}
+
+void reset_nodes_searched() {
+    g_nodes_searched.store(0, std::memory_order_relaxed);
+}
+
+namespace {
+
+inline void inc_node() {
+    g_nodes_searched.fetch_add(1, std::memory_order_relaxed);
+}
+
+} // namespace
+
 namespace {
 
 bool move_gives_check(Position& pos, Move move) {
@@ -496,6 +514,7 @@ void clear_search_state() {
 }
 
 int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0, Move* pv = nullptr) {
+    inc_node();
     if (pv) { pv[0] = MOVE_NONE; }
 
     if (ply > 0 && pos.is_repetition()) return 0;
@@ -571,6 +590,7 @@ int qsearch(Position& pos, int alpha, int beta, int checks_left = 1, int ply = 0
 }
 
 int alpha_beta(Position& pos, int depth, int alpha, int beta, int extensions_left, int ply, Move* pv = nullptr) {
+    inc_node();
     if (pv) { pv[0] = MOVE_NONE; }
 
     if (ply > 0 && pos.is_repetition()) return 0;
@@ -886,14 +906,26 @@ SearchResult search_root_depth(Position& pos, int depth, int threads) {
 
 } // namespace
 
-SearchResult search_root(Position& pos, SearchLimits limits) {
+SearchResult search_root(Position& pos, SearchLimits limits, SearchInfoCallback on_info) {
     int max_depth = std::max(1, limits.depth);
     int threads = std::max(1, limits.threads);
     SearchResult result;
 
+    reset_nodes_searched();
+    const auto started = std::chrono::steady_clock::now();
+
     // Iterative deepening seeds the TT/hash move for deeper root searches.
     for (int depth = 1; depth <= max_depth; ++depth) {
         result = search_root_depth(pos, depth, threads);
+        result.depth = depth;
+        result.nodes = nodes_searched();
+        result.time_ms = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started)
+                .count());
+        if (on_info) {
+            on_info(result);
+        }
     }
 
     return result;

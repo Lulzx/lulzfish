@@ -1,9 +1,11 @@
 #include "lulzfish/core/movegen.hpp"
 #include "lulzfish/core/position.hpp"
+#include "lulzfish/eval/graph_eval.hpp"
 #include "lulzfish/eval/material.hpp"
 #include "lulzfish/search/search.hpp"
 
 #include <algorithm>
+#include <array>
 #include <exception>
 #include <sstream>
 #include <string>
@@ -17,6 +19,10 @@ namespace {
 Position g_position;
 std::vector<Move> g_moves;
 std::string g_last_result;
+lulzfish::search::SearchResult g_last_search;
+
+constexpr int kMaxWasmDepth = 6;
+constexpr size_t kMaxGraphRelations = 400;
 
 std::string json_escape(std::string_view text) {
     std::string out;
@@ -101,6 +107,71 @@ std::string status_text(Position& pos, const MoveList& legal_moves) {
     return "Game over";
 }
 
+std::string relation_type_name(lulzfish::eval::graph::RelationType type) {
+    using lulzfish::eval::graph::RelationType;
+    switch (type) {
+        case RelationType::ATTACKS: return "ATTACKS";
+        case RelationType::DEFENDS: return "DEFENDS";
+        case RelationType::PINS: return "PINS";
+        case RelationType::DISCOVERED_ATTACK: return "DISCOVERED_ATTACK";
+        case RelationType::PAWN_CHAIN: return "PAWN_CHAIN";
+        case RelationType::KING_ZONE: return "KING_ZONE";
+        default: return "UNKNOWN";
+    }
+}
+
+int relation_priority(lulzfish::eval::graph::RelationType type) {
+    using lulzfish::eval::graph::RelationType;
+    switch (type) {
+        case RelationType::PINS: return 0;
+        case RelationType::DISCOVERED_ATTACK: return 1;
+        case RelationType::ATTACKS: return 2;
+        case RelationType::DEFENDS: return 3;
+        case RelationType::KING_ZONE: return 4;
+        case RelationType::PAWN_CHAIN: return 5;
+        default: return 9;
+    }
+}
+
+std::string pv_to_uci_json(const lulzfish::search::SearchResult& result) {
+    std::ostringstream out;
+    out << "[";
+    for (int i = 0; i < result.pv_length; ++i) {
+        if (i > 0) out << ",";
+        out << "\"" << move_to_uci(result.pv[i]) << "\"";
+    }
+    out << "]";
+    return out.str();
+}
+
+std::string search_result_json(const lulzfish::search::SearchResult& result) {
+    std::ostringstream out;
+    out << "{";
+    out << "\"score\":" << result.score << ",";
+    out << "\"depth\":" << result.depth << ",";
+    out << "\"nodes\":" << result.nodes << ",";
+    out << "\"time_ms\":" << result.time_ms << ",";
+    int nps = 0;
+    if (result.time_ms > 0) {
+        nps = static_cast<int>((result.nodes * 1000ULL) / static_cast<std::uint64_t>(result.time_ms));
+    }
+    out << "\"nps\":" << nps << ",";
+    out << "\"best_move\":\"" << move_to_uci(result.best_move) << "\",";
+    out << "\"pv\":" << pv_to_uci_json(result);
+    out << "}";
+    return out.str();
+}
+
+lulzfish::search::SearchResult run_search(int depth) {
+    lulzfish::search::SearchLimits limits;
+    limits.depth = std::clamp(depth, 1, kMaxWasmDepth);
+    limits.threads = 1;
+    Position search_pos = g_position;
+    lulzfish::search::SearchResult result = lulzfish::search::search_root(search_pos, limits);
+    g_last_search = result;
+    return result;
+}
+
 std::string result_text(Position& pos, const MoveList& legal_moves) {
     if (legal_moves.empty()) {
         if (pos.is_check()) {
@@ -173,7 +244,8 @@ std::string state_json() {
     out << "\"status\":\"" << json_escape(status_text(g_position, legal_moves)) << "\",";
     out << "\"result\":\"" << json_escape(result_text(g_position, legal_moves)) << "\",";
     out << "\"fen\":\"" << json_escape(g_position.fen()) << "\",";
-    out << "\"score\":" << lulzfish::eval::evaluate(g_position);
+    out << "\"score\":" << lulzfish::eval::evaluate(g_position) << ",";
+    out << "\"search_info\":" << search_result_json(g_last_search);
     out << "}";
 
     return out.str();
@@ -190,13 +262,8 @@ const char* store_error(std::string_view message) {
 }
 
 Move best_move_for_depth(int depth) {
-    MoveList legal_moves;
-    generate_legal(g_position, legal_moves);
-    if (legal_moves.empty()) return MOVE_NONE;
-
-    lulzfish::search::SearchLimits limits;
-    limits.depth = std::clamp(depth, 1, 6);
-    return lulzfish::search::search_root(g_position, limits).best_move;
+    lulzfish::search::SearchResult result = run_search(depth);
+    return result.best_move;
 }
 
 } // namespace
@@ -206,6 +273,7 @@ extern "C" {
 const char* lulzfish_new_game() {
     try {
         lulzfish::search::clear_search_state();
+        g_last_search = {};
         g_position.set_startpos();
         g_moves.clear();
         return store_result(state_json());
@@ -217,6 +285,7 @@ const char* lulzfish_new_game() {
 const char* lulzfish_set_fen(const char* fen) {
     try {
         lulzfish::search::clear_search_state();
+        g_last_search = {};
         g_position.set_from_fen(fen == nullptr ? "" : fen);
         g_moves.clear();
         return store_result(state_json());
@@ -256,6 +325,7 @@ const char* lulzfish_make_move(const char* move_text) {
 const char* lulzfish_apply_uci_line(const char* moves_text) {
     try {
         lulzfish::search::clear_search_state();
+        g_last_search = {};
         g_position.set_startpos();
         g_moves.clear();
 
@@ -311,6 +381,112 @@ int lulzfish_evaluate() {
 
 void lulzfish_clear_search() {
     lulzfish::search::clear_search_state();
+    g_last_search = {};
+}
+
+const char* lulzfish_analyze(int depth) {
+    try {
+        MoveList legal_moves;
+        generate_legal(g_position, legal_moves);
+        if (legal_moves.empty()) {
+            return store_result(std::string("{\"ok\":true,\"search\":") +
+                                search_result_json(g_last_search) + "}");
+        }
+        return store_result(std::string("{\"ok\":true,\"search\":") +
+                            search_result_json(run_search(depth)) + "}");
+    } catch (const std::exception& exc) {
+        return store_error(exc.what());
+    }
+}
+
+const char* lulzfish_search_info_json(int depth) {
+    return lulzfish_analyze(depth);
+}
+
+const char* lulzfish_graph_json() {
+    try {
+        const auto& graph = g_position.graph();
+        const auto& relations = graph.relations();
+
+        std::vector<size_t> indices(relations.size());
+        for (size_t i = 0; i < relations.size(); ++i) {
+            indices[i] = i;
+        }
+        std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+            const auto& ra = relations[a];
+            const auto& rb = relations[b];
+            int pa = relation_priority(ra.type);
+            int pb = relation_priority(rb.type);
+            if (pa != pb) return pa < pb;
+            return a < b;
+        });
+
+        const size_t limit = std::min(indices.size(), kMaxGraphRelations);
+        const bool capped = relations.size() > limit;
+
+        std::ostringstream out;
+        out << "{\"ok\":true,\"capped\":" << (capped ? "true" : "false")
+            << ",\"total\":" << relations.size() << ",\"relations\":[";
+        for (size_t i = 0; i < limit; ++i) {
+            const auto& rel = relations[indices[i]];
+            if (i > 0) out << ",";
+            out << "{\"type\":\"" << relation_type_name(rel.type) << "\",";
+            out << "\"from\":\"" << square_to_text(rel.from) << "\",";
+            out << "\"to\":\"" << square_to_text(rel.to) << "\"}";
+        }
+        out << "]}";
+        return store_result(out.str());
+    } catch (const std::exception& exc) {
+        return store_error(exc.what());
+    }
+}
+
+const char* lulzfish_features_json() {
+    try {
+        std::array<float, lulzfish::eval::graph::FEATURES_TOTAL> features{};
+        lulzfish::eval::graph::extract_features(g_position, features);
+
+        std::ostringstream out;
+        out << "{\"ok\":true,\"features\":[";
+        for (size_t i = 0; i < features.size(); ++i) {
+            if (i > 0) out << ",";
+            out << features[i];
+        }
+        out << "]}";
+        return store_result(out.str());
+    } catch (const std::exception& exc) {
+        return store_error(exc.what());
+    }
+}
+
+const char* lulzfish_attack_heatmap_json() {
+    try {
+        std::ostringstream out;
+        out << "{\"ok\":true,\"white\":{";
+        bool first_white = true;
+        for (int raw_sq = 0; raw_sq < 64; ++raw_sq) {
+            Square sq = static_cast<Square>(raw_sq);
+            int count = popcount(g_position.attackers_to(sq, Color::White));
+            if (count == 0) continue;
+            if (!first_white) out << ",";
+            first_white = false;
+            out << "\"" << square_to_text(sq) << "\":" << count;
+        }
+        out << "},\"black\":{";
+        bool first_black = true;
+        for (int raw_sq = 0; raw_sq < 64; ++raw_sq) {
+            Square sq = static_cast<Square>(raw_sq);
+            int count = popcount(g_position.attackers_to(sq, Color::Black));
+            if (count == 0) continue;
+            if (!first_black) out << ",";
+            first_black = false;
+            out << "\"" << square_to_text(sq) << "\":" << count;
+        }
+        out << "}}";
+        return store_result(out.str());
+    } catch (const std::exception& exc) {
+        return store_error(exc.what());
+    }
 }
 
 } // extern "C"

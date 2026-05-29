@@ -18,6 +18,8 @@
       --accent: #2f6f4e;
       --accent-dark: #244e39;
       --danger: #a24d3d;
+      --eval-white: #f4f0e6;
+      --eval-black: #3a4038;
     }
 
     * { box-sizing: border-box; }
@@ -33,22 +35,48 @@
     button, select, input { font: inherit; }
 
     .shell {
-      width: min(1180px, calc(100vw - 32px));
+      width: min(1280px, calc(100vw - 32px));
       min-height: 100dvh;
       margin: 0 auto;
       display: grid;
-      grid-template-columns: minmax(320px, 72dvh) minmax(280px, 1fr);
-      gap: clamp(20px, 4vw, 56px);
-      align-items: center;
+      grid-template-columns: minmax(340px, 78dvh) minmax(300px, 1fr);
+      gap: clamp(20px, 4vw, 48px);
+      align-items: start;
       padding: 28px 0;
     }
 
-    .board-wrap {
+    .board-column {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
+      align-items: stretch;
       width: 100%;
       max-width: 760px;
     }
 
+    .eval-bar {
+      position: relative;
+      border: 1px solid var(--line);
+      background: var(--eval-black);
+      min-height: 200px;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .eval-bar-fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 50%;
+      background: var(--eval-white);
+      transition: height 180ms ease;
+    }
+
+    .board-wrap { width: 100%; }
+
     .board-frame {
+      position: relative;
       border: 1px solid rgba(32,35,31,0.18);
       background: #283025;
       padding: clamp(8px, 1.4vw, 14px);
@@ -60,6 +88,19 @@
       aspect-ratio: 1;
       border: 1px solid rgba(32,35,31,0.42);
       overflow: hidden;
+    }
+
+    .board-overlay {
+      position: absolute;
+      inset: clamp(8px, 1.4vw, 14px);
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .board-overlay line {
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      opacity: 0.72;
     }
 
     .board square.last-move {
@@ -74,11 +115,14 @@
       background: radial-gradient(rgba(32,35,31,0.28) 19%, transparent 20%);
     }
 
+    .board square.attack-heat {
+      box-shadow: inset 0 0 0 999px rgba(47,111,78,0.22);
+    }
+
     .side {
-      align-self: stretch;
       display: grid;
-      align-content: center;
-      gap: 20px;
+      gap: 16px;
+      align-content: start;
     }
 
     .brand {
@@ -87,14 +131,13 @@
       justify-content: space-between;
       gap: 20px;
       border-bottom: 1px solid var(--line);
-      padding-bottom: 18px;
+      padding-bottom: 14px;
     }
 
     h1 {
       margin: 0;
-      font-size: clamp(30px, 5vw, 54px);
+      font-size: clamp(28px, 5vw, 48px);
       line-height: 0.95;
-      letter-spacing: 0;
       font-weight: 760;
     }
 
@@ -103,61 +146,72 @@
       font-size: 13px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      white-space: nowrap;
     }
 
     .status {
       display: grid;
-      gap: 8px;
+      gap: 6px;
       border-bottom: 1px solid var(--line);
-      padding-bottom: 18px;
+      padding-bottom: 14px;
     }
 
     .status-main {
-      min-height: 32px;
-      font-size: clamp(20px, 2.4vw, 28px);
+      font-size: clamp(18px, 2.4vw, 26px);
       font-weight: 680;
       line-height: 1.15;
     }
 
-    .status-sub {
+    .status-sub, .eval-text {
       color: var(--muted);
-      min-height: 24px;
       font-size: 15px;
     }
 
-    .controls, .actions {
+    .eval-text {
+      font-variant-numeric: tabular-nums;
+      font-weight: 650;
+      color: var(--accent-dark);
+    }
+
+    .mode-row, .toggle-row, .controls, .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mode-row label, .toggle-row label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 650;
+      margin-right: 4px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      padding: 8px 12px;
+      min-height: 38px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .chip.active {
+      border-color: var(--accent-dark);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .chip:disabled { opacity: 0.55; cursor: wait; }
+
+    .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
       align-items: end;
     }
 
-    .bench-link {
-      grid-column: 1 / -1;
-      border: 1px solid var(--line);
-      color: var(--ink);
-      background: rgba(255,255,255,0.58);
-      min-height: 42px;
-      display: grid;
-      place-items: center;
-      text-decoration: none;
-      font-weight: 680;
-      transition: transform 140ms ease, border-color 140ms ease;
-    }
-
-    .bench-link:hover {
-      border-color: var(--accent);
-    }
-
-    .bench-link:active {
-      transform: translateY(1px) scale(0.99);
-    }
-
-    .field {
-      display: grid;
-      gap: 6px;
-    }
+    .field { display: grid; gap: 6px; }
 
     label {
       color: var(--muted);
@@ -184,10 +238,10 @@
       border: 1px solid var(--accent-dark);
       background: var(--accent);
       color: #fff;
-      min-height: 46px;
+      min-height: 42px;
+      padding: 0 14px;
       cursor: pointer;
       font-weight: 720;
-      transition: transform 140ms ease, filter 140ms ease;
     }
 
     .button.secondary {
@@ -196,31 +250,83 @@
       border-color: var(--line);
     }
 
-    .button:disabled {
-      cursor: wait;
-      filter: grayscale(0.2) opacity(0.72);
+    .button:disabled { opacity: 0.65; cursor: wait; }
+
+    .thinking {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.72);
+      padding: 10px 12px;
+      font-size: 13px;
+      display: none;
     }
 
-    .button:active {
-      transform: translateY(1px) scale(0.99);
+    .thinking.open { display: block; }
+
+    .thinking table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
     }
+
+    .thinking th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 650;
+      padding: 2px 8px 6px 0;
+    }
+
+    .thinking td { padding: 2px 8px 2px 0; }
 
     .move-list {
-      max-height: min(34dvh, 360px);
+      max-height: min(28dvh, 280px);
       overflow: auto;
       border-top: 1px solid var(--line);
       border-bottom: 1px solid var(--line);
-      padding: 12px 0;
+      padding: 10px 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
       color: #3a4038;
-      line-height: 1.8;
+      line-height: 1.75;
     }
 
-    .moves-empty {
+    .features {
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .features summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-weight: 650;
       color: var(--muted);
-      font-family: ui-sans-serif, system-ui, sans-serif;
-      line-height: 1.4;
+    }
+
+    .feature-chart {
+      display: grid;
+      gap: 6px;
+      padding: 0 12px 12px;
+      max-height: 220px;
+      overflow: auto;
+    }
+
+    .feature-row {
+      display: grid;
+      grid-template-columns: 28px 1fr 48px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .feature-bar-wrap {
+      height: 8px;
+      background: #eceee6;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .feature-bar {
+      height: 100%;
+      background: var(--accent);
     }
 
     .promotion {
@@ -231,50 +337,57 @@
       font-size: 13px;
     }
 
-    .promotion.open {
-      display: flex;
-    }
+    .promotion.open { display: flex; }
 
     .promo-button {
       width: 42px;
       aspect-ratio: 1;
       border: 1px solid var(--line);
       background: var(--panel);
-      color: var(--ink);
       cursor: pointer;
       font-size: 22px;
     }
 
+    .bench-link {
+      display: grid;
+      place-items: center;
+      text-decoration: none;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      min-height: 42px;
+      font-weight: 680;
+    }
+
     .error {
-      min-height: 22px;
+      min-height: 20px;
       color: var(--danger);
       font-size: 14px;
     }
 
-    @media (max-width: 860px) {
+    @media (max-width: 900px) {
       .shell {
         grid-template-columns: 1fr;
-        align-items: start;
         width: min(100vw - 24px, 720px);
         padding: 16px 0 28px;
       }
-      .side {
-        align-content: start;
+      .board-column {
+        max-width: none;
       }
-      .controls, .actions {
-        grid-template-columns: 1fr;
-      }
-      .move-list {
-        max-height: 220px;
-      }
+      .controls { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <section class="board-wrap" aria-label="Chess board">
-      <div class="board-frame">
-        <div id="board" class="board"></div>
+    <section class="board-column" aria-label="Chess board">
+      <div id="evalBar" class="eval-bar" aria-label="Evaluation bar">
+        <div id="evalBarFill" class="eval-bar-fill"></div>
+      </div>
+      <div class="board-wrap">
+        <div class="board-frame">
+          <div id="board" class="board"></div>
+          <svg id="graphOverlay" class="board-overlay" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+        </div>
       </div>
     </section>
 
@@ -287,6 +400,36 @@
       <div class="status">
         <div id="statusMain" class="status-main">Loading engine</div>
         <div id="statusSub" class="status-sub"></div>
+        <div id="evalText" class="eval-text">+0.00</div>
+      </div>
+
+      <div class="mode-row" role="group" aria-label="Mode">
+        <label>Mode</label>
+        <button type="button" class="chip mode-chip active" data-mode="play">Play</button>
+        <button type="button" class="chip mode-chip" data-mode="analyze">Analyze</button>
+        <button type="button" class="chip mode-chip" data-mode="hint">Hint</button>
+      </div>
+
+      <div class="toggle-row">
+        <button type="button" id="toggleGraph" class="chip">Graph</button>
+        <button type="button" id="toggleHeatmap" class="chip">Heatmap</button>
+        <button type="button" id="refreshViz" class="chip secondary">Refresh viz</button>
+      </div>
+
+      <div id="thinking" class="thinking">
+        <table>
+          <thead>
+            <tr><th>Depth</th><th>Score</th><th>Nodes</th><th>NPS</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="thinkDepth">—</td>
+              <td id="thinkScore">—</td>
+              <td id="thinkNodes">—</td>
+              <td id="thinkNps">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="controls">
@@ -299,14 +442,14 @@
         </div>
         <div class="field">
           <label for="depth">Engine depth</label>
-          <input id="depth" type="number" min="1" max="5" value="2">
+          <input id="depth" type="number" min="1" max="6" value="2">
         </div>
       </div>
 
       <div class="actions">
         <button id="newGame" class="button">New game</button>
         <button id="flip" class="button secondary">Flip board</button>
-        <a class="bench-link" href="./benchmarks/">Benchmark results</a>
+        <a class="bench-link" href="./benchmarks/">Benchmarks</a>
       </div>
 
       <div id="promotion" class="promotion">
@@ -319,6 +462,11 @@
 
       <div id="error" class="error"></div>
       <div id="moves" class="move-list"><span class="moves-empty">No moves yet.</span></div>
+
+      <details id="featuresPanel" class="features">
+        <summary>Feature vector (dev)</summary>
+        <div id="featureChart" class="feature-chart"></div>
+      </details>
     </section>
   </main>
 

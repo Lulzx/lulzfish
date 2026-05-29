@@ -153,6 +153,126 @@ static void handle_setoption(const std::vector<std::string>& tokens) {
     }
 }
 
+static void emit_search_info(const SearchResult& result) {
+    std::cout << "info depth " << result.depth
+              << " score cp " << result.score
+              << " nodes " << result.nodes
+              << " time " << result.time_ms;
+    if (result.time_ms > 0) {
+        const auto nps = (result.nodes * 1000ULL) / static_cast<std::uint64_t>(result.time_ms);
+        std::cout << " nps " << nps;
+    }
+    std::cout << " pv";
+    for (int i = 0; i < result.pv_length; ++i) {
+        std::cout << " " << move_to_uci(result.pv[i]);
+    }
+    std::cout << "\n";
+}
+
+static std::string relation_type_name(lulzfish::eval::graph::RelationType type) {
+    using lulzfish::eval::graph::RelationType;
+    switch (type) {
+        case RelationType::ATTACKS: return "ATTACKS";
+        case RelationType::DEFENDS: return "DEFENDS";
+        case RelationType::PINS: return "PINS";
+        case RelationType::DISCOVERED_ATTACK: return "DISCOVERED_ATTACK";
+        case RelationType::PAWN_CHAIN: return "PAWN_CHAIN";
+        case RelationType::KING_ZONE: return "KING_ZONE";
+        default: return "UNKNOWN";
+    }
+}
+
+static int relation_priority(lulzfish::eval::graph::RelationType type) {
+    using lulzfish::eval::graph::RelationType;
+    switch (type) {
+        case RelationType::PINS: return 0;
+        case RelationType::DISCOVERED_ATTACK: return 1;
+        case RelationType::ATTACKS: return 2;
+        case RelationType::DEFENDS: return 3;
+        case RelationType::KING_ZONE: return 4;
+        case RelationType::PAWN_CHAIN: return 5;
+        default: return 9;
+    }
+}
+
+static std::string square_to_text(Square sq) {
+    std::string out;
+    out += static_cast<char>('a' + file_of(sq));
+    out += static_cast<char>('1' + rank_of(sq));
+    return out;
+}
+
+static void handle_graph() {
+    if (!position_set) {
+        current_position.set_startpos();
+        position_set = true;
+    }
+
+    constexpr size_t kMaxGraphRelations = 400;
+    const auto& graph = current_position.graph();
+    const auto& relations = graph.relations();
+
+    std::vector<size_t> indices(relations.size());
+    for (size_t i = 0; i < relations.size(); ++i) {
+        indices[i] = i;
+    }
+    std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+        const auto& ra = relations[a];
+        const auto& rb = relations[b];
+        int pa = relation_priority(ra.type);
+        int pb = relation_priority(rb.type);
+        if (pa != pb) return pa < pb;
+        return a < b;
+    });
+
+    const size_t limit = std::min(indices.size(), kMaxGraphRelations);
+    const bool capped = relations.size() > limit;
+
+    std::ostringstream out;
+    out << "graph {\"ok\":true,\"capped\":" << (capped ? "true" : "false")
+        << ",\"total\":" << relations.size() << ",\"relations\":[";
+    for (size_t i = 0; i < limit; ++i) {
+        const auto& rel = relations[indices[i]];
+        if (i > 0) out << ",";
+        out << "{\"type\":\"" << relation_type_name(rel.type) << "\",";
+        out << "\"from\":\"" << square_to_text(rel.from) << "\",";
+        out << "\"to\":\"" << square_to_text(rel.to) << "\"}";
+    }
+    out << "]}";
+    std::cout << out.str() << "\n";
+}
+
+static void handle_heatmap() {
+    if (!position_set) {
+        current_position.set_startpos();
+        position_set = true;
+    }
+
+    std::ostringstream out;
+    out << "heatmap {\"ok\":true,\"white\":{";
+    bool first_white = true;
+    for (int raw_sq = 0; raw_sq < 64; ++raw_sq) {
+        Square sq = static_cast<Square>(raw_sq);
+        int count = popcount(current_position.attackers_to(sq, Color::White));
+        if (count == 0) continue;
+        if (!first_white) out << ",";
+        first_white = false;
+        out << "\"" << square_to_text(sq) << "\":" << count;
+    }
+    out << "},\"black\":{";
+    bool first_black = true;
+    for (int raw_sq = 0; raw_sq < 64; ++raw_sq) {
+        Square sq = static_cast<Square>(raw_sq);
+        int count = popcount(current_position.attackers_to(sq, Color::Black));
+        if (count == 0) continue;
+        if (!first_black) out << ",";
+        first_black = false;
+        out << "\"" << square_to_text(sq) << "\":" << count;
+    }
+    out << "}}";
+    std::cout << out.str() << "\n";
+}
+
 static void handle_go(const std::vector<std::string>& tokens) {
     if (!position_set) {
         current_position.set_startpos();
@@ -169,17 +289,13 @@ static void handle_go(const std::vector<std::string>& tokens) {
         }
     }
 
-    SearchResult result = lulzfish::search::search_root(current_position, limits);
+    SearchResult result = lulzfish::search::search_root(
+        current_position, limits, emit_search_info);
 
     MoveList moves;
     generate_legal(current_position, moves);
 
     if (!moves.empty() && result.best_move != MOVE_NONE) {
-        std::cout << "info depth " << limits.depth << " score cp " << result.score << " pv";
-        for (int i = 0; i < result.pv_length; ++i) {
-            std::cout << " " << move_to_uci(result.pv[i]);
-        }
-        std::cout << "\n";
         std::cout << "bestmove " << move_to_uci(result.best_move) << "\n";
     } else {
         std::cout << "bestmove 0000\n";
@@ -212,6 +328,10 @@ void loop() {
             lulzfish::search::clear_search_state();
             current_position.set_startpos();
             position_set = false;
+        } else if (tokens[0] == "graph") {
+            handle_graph();
+        } else if (tokens[0] == "heatmap") {
+            handle_heatmap();
         } else if (tokens[0] == "features") {
             // Debug: dump the 64-d feature vector for the current position so
             // training tooling can use the engine as the single source of truth

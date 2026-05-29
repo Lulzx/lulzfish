@@ -7,6 +7,9 @@
 #include "lulzfish/core/movegen.hpp"
 #include "lulzfish/core/position.hpp"
 
+#include <cstdint>
+#include <functional>
+
 using lulzfish::core::Position;
 
 namespace lulzfish::search {
@@ -22,10 +25,18 @@ struct SearchResult {
     core::Move best_move = core::MOVE_NONE;
     core::Move pv[128] = {};
     int pv_length = 0;
+    int depth = 0;
+    std::uint64_t nodes = 0;
+    int time_ms = 0;
 };
 
+[[nodiscard]] std::uint64_t nodes_searched();
+void reset_nodes_searched();
+
+using SearchInfoCallback = std::function<void(const SearchResult&)>;
+
 int search(Position& pos, SearchLimits limits);
-SearchResult search_root(Position& pos, SearchLimits limits);
+SearchResult search_root(Position& pos, SearchLimits limits, SearchInfoCallback on_info = nullptr);
 void clear_search_state();
 
 // Basic self-play for data recording (foundation for future training of controller or graph net)

@@ -49,7 +49,7 @@ fi
   -sALLOW_MEMORY_GROWTH=1 \
   -sNO_EXIT_RUNTIME=1 \
   -sDISABLE_EXCEPTION_CATCHING=0 \
-  -sEXPORTED_FUNCTIONS="['_lulzfish_new_game','_lulzfish_set_fen','_lulzfish_state_json','_lulzfish_make_move','_lulzfish_apply_uci_line','_lulzfish_best_move','_lulzfish_play_engine_move','_lulzfish_evaluate','_lulzfish_clear_search']" \
+  -sEXPORTED_FUNCTIONS="['_lulzfish_new_game','_lulzfish_set_fen','_lulzfish_state_json','_lulzfish_make_move','_lulzfish_apply_uci_line','_lulzfish_best_move','_lulzfish_play_engine_move','_lulzfish_evaluate','_lulzfish_clear_search','_lulzfish_analyze','_lulzfish_search_info_json','_lulzfish_graph_json','_lulzfish_features_json','_lulzfish_attack_heatmap_json']" \
   -sEXPORTED_RUNTIME_METHODS="['ccall','cwrap']" \
   -o "${OUT_DIR}/lulzfish.js"
 

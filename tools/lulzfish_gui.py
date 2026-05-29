@@ -15,7 +15,8 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from collections.abc import Callable
 from http import HTTPStatus
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -58,6 +59,9 @@ HTML = r"""<!doctype html>
       --light-square: #eee6d3;
       --accent: #2f6f4e;
       --accent-2: #a24d3d;
+      --accent-dark: #244e39;
+      --eval-white: #f4f0e6;
+      --eval-black: #3a4038;
       --last: #d6b95f;
       --legal: rgba(32, 35, 31, 0.28);
       --check: #b9463f;
@@ -90,16 +94,55 @@ HTML = r"""<!doctype html>
       padding: 28px 0;
     }
 
-    .board-wrap {
+    .board-column {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
       width: 100%;
       max-width: 760px;
     }
 
+    .eval-bar {
+      position: relative;
+      border: 1px solid var(--line);
+      background: var(--eval-black);
+      min-height: 200px;
+      overflow: hidden;
+    }
+
+    .eval-bar-fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 50%;
+      background: var(--eval-white);
+      transition: height 180ms ease;
+    }
+
+    .board-wrap {
+      width: 100%;
+    }
+
     .board-frame {
+      position: relative;
       border: 1px solid rgba(32,35,31,0.18);
       background: #283025;
       padding: clamp(8px, 1.4vw, 14px);
       box-shadow: 0 22px 70px rgba(32,35,31,0.18);
+    }
+
+    .board-overlay {
+      position: absolute;
+      inset: clamp(8px, 1.4vw, 14px);
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .board-overlay line {
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      opacity: 0.72;
     }
 
     .board {
@@ -127,6 +170,69 @@ HTML = r"""<!doctype html>
 
     .board square.premove-dest {
       background: radial-gradient(rgba(162,77,61,0.35) 19%, transparent 20%);
+    }
+
+    .toggle-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      padding: 8px 12px;
+      min-height: 38px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .chip.active {
+      border-color: var(--accent-dark);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .features {
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .features summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-weight: 650;
+      color: var(--muted);
+    }
+
+    .feature-chart {
+      display: grid;
+      gap: 6px;
+      padding: 0 12px 12px;
+      max-height: 220px;
+      overflow: auto;
+    }
+
+    .feature-row {
+      display: grid;
+      grid-template-columns: 28px 1fr 48px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .feature-bar-wrap {
+      height: 8px;
+      background: #eceee6;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .feature-bar {
+      height: 100%;
+      background: var(--accent);
     }
 
     .side {
@@ -179,6 +285,36 @@ HTML = r"""<!doctype html>
       color: var(--muted);
       min-height: 24px;
       font-size: 15px;
+    }
+
+    .eval-text {
+      color: var(--accent-dark);
+      font-size: 15px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .thinking {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.72);
+      padding: 10px 12px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .thinking.open { display: block; }
+
+    .thinking table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .thinking th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 650;
+      padding: 2px 8px 6px 0;
     }
 
     .controls {
@@ -307,9 +443,15 @@ HTML = r"""<!doctype html>
 </head>
 <body>
   <main class="shell">
-    <section class="board-wrap" aria-label="Chess board">
-      <div class="board-frame">
-        <div id="board" class="board"></div>
+    <section class="board-column" aria-label="Chess board">
+      <div class="eval-bar" aria-label="Evaluation bar">
+        <div id="evalBarFill" class="eval-bar-fill"></div>
+      </div>
+      <div class="board-wrap">
+        <div class="board-frame">
+          <div id="board" class="board"></div>
+          <svg id="graphOverlay" class="board-overlay" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+        </div>
       </div>
     </section>
 
@@ -322,6 +464,29 @@ HTML = r"""<!doctype html>
       <div class="status">
         <div id="statusMain" class="status-main">Loading board</div>
         <div id="statusSub" class="status-sub"></div>
+        <div id="evalText" class="eval-text">+0.00</div>
+      </div>
+
+      <div class="toggle-row">
+        <button type="button" id="toggleGraph" class="chip">Graph</button>
+        <button type="button" id="toggleHeatmap" class="chip">Heatmap</button>
+        <button type="button" id="refreshViz" class="chip">Refresh viz</button>
+      </div>
+
+      <div id="thinking" class="thinking">
+        <table>
+          <thead>
+            <tr><th>Depth</th><th>Score</th><th>Nodes</th><th>NPS</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="thinkDepth">—</td>
+              <td id="thinkScore">—</td>
+              <td id="thinkNodes">—</td>
+              <td id="thinkNps">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="controls">
@@ -334,7 +499,7 @@ HTML = r"""<!doctype html>
         </div>
         <div class="field">
           <label for="depth">Engine depth</label>
-          <input id="depth" type="number" min="1" max="5" value="2">
+          <input id="depth" type="number" min="1" max="6" value="2">
         </div>
       </div>
 
@@ -353,13 +518,28 @@ HTML = r"""<!doctype html>
 
       <div id="error" class="error"></div>
       <div id="moves" class="move-list"><span class="moves-empty">No moves yet.</span></div>
+
+      <details id="featuresPanel" class="features">
+        <summary>Feature vector (dev)</summary>
+        <div id="featureChart" class="feature-chart"></div>
+      </details>
     </section>
   </main>
 
   <script type="module">
     import { Chessground } from "https://unpkg.com/chessground@9.2.1/dist/chessground.js";
 
+    const RELATION_COLORS = {
+      ATTACKS: "#2f6f4e",
+      DEFENDS: "#4a7c9b",
+      PINS: "#a24d3d",
+      DISCOVERED_ATTACK: "#8b5a2b",
+      PAWN_CHAIN: "#6d7467",
+      KING_ZONE: "#b9463f",
+    };
+
     let ground = null;
+    let pollTimer = null;
     const state = {
       legal: [],
       playerColor: "white",
@@ -369,17 +549,160 @@ HTML = r"""<!doctype html>
       fen: "startpos",
       turn: "white",
       checkSquare: null,
-      busy: false
+      busy: false,
+      score: 0,
+      pv: [],
+      showGraph: false,
+      showHeatmap: false,
+      graphRelations: [],
+      attackHeatmap: null,
     };
 
     const boardEl = document.getElementById("board");
+    const graphOverlay = document.getElementById("graphOverlay");
+    const featureChart = document.getElementById("featureChart");
     const statusMain = document.getElementById("statusMain");
     const statusSub = document.getElementById("statusSub");
+    const evalText = document.getElementById("evalText");
+    const evalBarFill = document.getElementById("evalBarFill");
+    const thinkingEl = document.getElementById("thinking");
+    const thinkDepth = document.getElementById("thinkDepth");
+    const thinkScore = document.getElementById("thinkScore");
+    const thinkNodes = document.getElementById("thinkNodes");
+    const thinkNps = document.getElementById("thinkNps");
     const movesEl = document.getElementById("moves");
     const errorEl = document.getElementById("error");
     const colorEl = document.getElementById("color");
     const depthEl = document.getElementById("depth");
     const promotionEl = document.getElementById("promotion");
+    const toggleGraph = document.getElementById("toggleGraph");
+    const toggleHeatmap = document.getElementById("toggleHeatmap");
+
+    function scoreCpWhite(score, turn) {
+      const abs = Math.abs(score || 0);
+      if (abs > 25000) {
+        const matePly = 30000 - abs;
+        const sign = score > 0 ? 1 : -1;
+        const mateForWhite = turn === "white" ? sign : -sign;
+        return mateForWhite > 0 ? 800 - matePly : -800 + matePly;
+      }
+      return turn === "white" ? score : -score;
+    }
+
+    function formatEval(score, turn) {
+      const cpWhite = scoreCpWhite(score, turn);
+      const abs = Math.abs(score || 0);
+      if (abs > 25000) {
+        const mateIn = 30000 - abs;
+        return cpWhite > 0 ? `#${mateIn}` : `#-${mateIn}`;
+      }
+      const pawns = cpWhite / 100;
+      return `${pawns >= 0 ? "+" : ""}${pawns.toFixed(2)}`;
+    }
+
+    function updateEvalBar(score, turn) {
+      const cpWhite = scoreCpWhite(score, turn);
+      const clamped = Math.max(-800, Math.min(800, cpWhite));
+      const pct = 50 + (clamped / 800) * 50;
+      evalBarFill.style.height = `${pct}%`;
+      evalText.textContent = formatEval(score, turn);
+    }
+
+    function pvToShapes(pv) {
+      if (!pv?.length) return [];
+      return pv.filter((uci) => uci && uci.length >= 4).map((uci, i) => ({
+        orig: uci.slice(0, 2),
+        dest: uci.slice(2, 4),
+        brush: i === 0 ? "green" : "paleGreen",
+      }));
+    }
+
+    function updateThinking(info) {
+      if (!info || !Object.keys(info).length) {
+        if (!state.busy) thinkingEl.classList.remove("open");
+        return;
+      }
+      thinkingEl.classList.add("open");
+      thinkDepth.textContent = info.depth ?? "—";
+      thinkScore.textContent = formatEval(info.score, state.turn);
+      thinkNodes.textContent = info.nodes != null ? Number(info.nodes).toLocaleString() : "—";
+      const nps = info.nps ?? (info.time_ms > 0 && info.nodes != null
+        ? Math.floor((info.nodes * 1000) / info.time_ms)
+        : null);
+      thinkNps.textContent = nps != null ? Number(nps).toLocaleString() : "—";
+      if (info.score != null) {
+        updateEvalBar(info.score, state.turn);
+      }
+    }
+
+    function squareCenterPct(sq, orientation) {
+      const file = sq.charCodeAt(0) - 97;
+      let rank = Number(sq[1]) - 1;
+      if (orientation === "black") {
+        return { x: (7 - file) * 12.5 + 6.25, y: rank * 12.5 + 6.25 };
+      }
+      return { x: file * 12.5 + 6.25, y: (7 - rank) * 12.5 + 6.25 };
+    }
+
+    function renderGraphOverlay() {
+      graphOverlay.innerHTML = "";
+      if (!state.showGraph || !state.graphRelations.length) return;
+      for (const rel of state.graphRelations) {
+        const from = squareCenterPct(rel.from, state.orientation);
+        const to = squareCenterPct(rel.to, state.orientation);
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", String(from.x));
+        line.setAttribute("y1", String(from.y));
+        line.setAttribute("x2", String(to.x));
+        line.setAttribute("y2", String(to.y));
+        line.setAttribute("stroke", RELATION_COLORS[rel.type] || "#6d7467");
+        graphOverlay.appendChild(line);
+      }
+    }
+
+    function applyHeatmapTint() {
+      boardEl.querySelectorAll("square").forEach((el) => {
+        el.style.removeProperty("box-shadow");
+      });
+      if (!state.showHeatmap || !state.attackHeatmap) return;
+      const side = state.turn === "white" ? state.attackHeatmap.white : state.attackHeatmap.black;
+      const max = Math.max(1, ...Object.values(side || {}));
+      for (const [sq, count] of Object.entries(side || {})) {
+        const node = boardEl.querySelector(`square.${sq}`);
+        if (!node) continue;
+        const alpha = 0.1 + (count / max) * 0.38;
+        node.style.boxShadow = `inset 0 0 0 999px rgba(47,111,78,${alpha})`;
+      }
+    }
+
+    async function refreshVisualization() {
+      if (state.showGraph) {
+        const graph = await api("/api/graph");
+        state.graphRelations = graph.relations || [];
+      }
+      if (state.showHeatmap) {
+        const heat = await api("/api/heatmap");
+        state.attackHeatmap = heat;
+      }
+      renderBoard();
+    }
+
+    async function refreshFeatures() {
+      const data = await api("/api/features");
+      const features = data.features || [];
+      const indexed = features.map((value, index) => ({ index, value: Math.abs(value), raw: value }));
+      indexed.sort((a, b) => b.value - a.value);
+      const top = indexed.slice(0, 12);
+      const max = top[0]?.value || 1;
+      featureChart.innerHTML = top.map((item) => {
+        const width = Math.max(4, (item.value / max) * 100);
+        return `<div class="feature-row">
+          <span>${item.index}</span>
+          <div class="feature-bar-wrap"><div class="feature-bar" style="width:${width}%"></div></div>
+          <span>${item.raw.toFixed(3)}</span>
+        </div>`;
+      }).join("");
+    }
 
     function legalDests() {
       const dests = new Map();
@@ -401,6 +724,11 @@ HTML = r"""<!doctype html>
         check: state.checkSquare || false,
         lastMove: state.lastMove ? [state.lastMove.slice(0, 2), state.lastMove.slice(2, 4)] : undefined,
         coordinates: true,
+        drawable: {
+          enabled: true,
+          visible: true,
+          autoShapes: pvToShapes(state.pv),
+        },
         highlight: {
           lastMove: true,
           check: true,
@@ -429,6 +757,8 @@ HTML = r"""<!doctype html>
 
       if (!ground) ground = Chessground(boardEl, config);
       else ground.set(config);
+      applyHeatmapTint();
+      renderGraphOverlay();
     }
 
     function renderMoves(san) {
@@ -451,6 +781,42 @@ HTML = r"""<!doctype html>
       errorEl.textContent = "";
       if (isBusy) {
         statusSub.textContent = "Engine is thinking.";
+        thinkingEl.classList.add("open");
+      }
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    async function pollThinking() {
+      stopPolling();
+      while (state.busy) {
+        try {
+          const data = await api("/api/thinking");
+          if (data.search_info) {
+            state.pv = data.search_info.pv || [];
+            updateThinking(data.search_info);
+            renderBoard();
+          }
+          if (!data.thinking) {
+            if (data.error) errorEl.textContent = data.error;
+            const fresh = await api("/api/state");
+            updateFromServer(fresh);
+            await refreshVisualization();
+            if (document.getElementById("featuresPanel").open) await refreshFeatures();
+            break;
+          }
+        } catch (err) {
+          errorEl.textContent = err.message;
+          break;
+        }
+        await new Promise((resolve) => {
+          pollTimer = setTimeout(resolve, 120);
+        });
       }
     }
 
@@ -461,11 +827,17 @@ HTML = r"""<!doctype html>
       state.checkSquare = data.check_square;
       state.fen = data.fen;
       state.turn = data.turn;
+      state.score = data.score ?? 0;
+      state.pv = data.pv || data.search_info?.pv || [];
       colorEl.value = data.player_color;
       depthEl.value = data.depth;
 
       statusMain.textContent = data.status;
       statusSub.textContent = data.result || `${data.turn === "white" ? "White" : "Black"} to move`;
+      const info = data.search_info || {};
+      if (info.score != null) updateEvalBar(info.score, state.turn);
+      else updateEvalBar(state.score, state.turn);
+      updateThinking(info);
       renderMoves(data.san);
       renderBoard();
     }
@@ -489,6 +861,18 @@ HTML = r"""<!doctype html>
       }
     }
 
+    async function waitForEngine(data) {
+      updateFromServer(data);
+      if (data.thinking) {
+        setBusy(true);
+        await pollThinking();
+        setBusy(false);
+      } else {
+        await refreshVisualization();
+        if (document.getElementById("featuresPanel").open) await refreshFeatures();
+      }
+    }
+
     async function newGame() {
       setBusy(true);
       state.pendingPromotion = null;
@@ -499,11 +883,12 @@ HTML = r"""<!doctype html>
           depth: Number(depthEl.value || 2)
         });
         state.orientation = colorEl.value;
-        updateFromServer(data);
+        await waitForEngine(data);
       } catch (err) {
         errorEl.textContent = err.message;
       } finally {
         setBusy(false);
+        stopPolling();
       }
     }
 
@@ -512,12 +897,13 @@ HTML = r"""<!doctype html>
       state.pendingPromotion = null;
       promotionEl.classList.remove("open");
       try {
-        updateFromServer(await api("/api/move", {uci}));
+        await waitForEngine(await api("/api/move", {uci}));
       } catch (err) {
         errorEl.textContent = err.message;
         renderBoard();
       } finally {
         setBusy(false);
+        stopPolling();
       }
     }
 
@@ -548,6 +934,28 @@ HTML = r"""<!doctype html>
     document.getElementById("flip").addEventListener("click", () => {
       state.orientation = state.orientation === "white" ? "black" : "white";
       renderBoard();
+    });
+
+    toggleGraph.addEventListener("click", async () => {
+      state.showGraph = !state.showGraph;
+      toggleGraph.classList.toggle("active", state.showGraph);
+      if (state.showGraph) await refreshVisualization();
+      else {
+        state.graphRelations = [];
+        renderGraphOverlay();
+      }
+    });
+
+    toggleHeatmap.addEventListener("click", async () => {
+      state.showHeatmap = !state.showHeatmap;
+      toggleHeatmap.classList.toggle("active", state.showHeatmap);
+      if (state.showHeatmap) await refreshVisualization();
+      else renderBoard();
+    });
+
+    document.getElementById("refreshViz").addEventListener("click", () => refreshVisualization());
+    document.getElementById("featuresPanel").addEventListener("toggle", () => {
+      if (document.getElementById("featuresPanel").open) refreshFeatures();
     });
 
     document.querySelectorAll(".promo-button").forEach((button) => {
@@ -608,7 +1016,86 @@ class Engine:
             self._send("isready")
             self._read_until("readyok")
 
-    def bestmove(self, moves: list[str], depth: int) -> str:
+    @staticmethod
+    def _parse_info_line(line: str) -> dict[str, Any]:
+        tokens = line.split()
+        if len(tokens) < 4 or tokens[0] != "info":
+            return {}
+        info: dict[str, Any] = {}
+        idx = 1
+        while idx < len(tokens):
+            key = tokens[idx]
+            if key == "depth" and idx + 1 < len(tokens):
+                info["depth"] = int(tokens[idx + 1])
+                idx += 2
+            elif key == "score" and idx + 2 < len(tokens) and tokens[idx + 1] == "cp":
+                info["score"] = int(tokens[idx + 2])
+                idx += 3
+            elif key == "nodes" and idx + 1 < len(tokens):
+                info["nodes"] = int(tokens[idx + 1])
+                idx += 2
+            elif key == "nps" and idx + 1 < len(tokens):
+                info["nps"] = int(tokens[idx + 1])
+                idx += 2
+            elif key == "time" and idx + 1 < len(tokens):
+                info["time_ms"] = int(tokens[idx + 1])
+                idx += 2
+            elif key == "pv":
+                info["pv"] = tokens[idx + 1 :]
+                idx = len(tokens)
+            else:
+                idx += 1
+        return info
+
+    def set_position(self, moves: list[str]) -> None:
+        with self.lock:
+            position = "position startpos"
+            if moves:
+                position += " moves " + " ".join(moves)
+            self._send(position)
+
+    def _read_json_line(self, prefix: str) -> dict[str, Any]:
+        assert self.proc.stdout is not None
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            line = self.proc.stdout.readline()
+            if not line:
+                continue
+            line = line.strip()
+            if line.startswith(prefix):
+                return json.loads(line[len(prefix) :])
+        raise TimeoutError(f"engine did not return {prefix.strip()}")
+
+    def graph(self) -> dict[str, Any]:
+        with self.lock:
+            self._send("graph")
+            return self._read_json_line("graph ")
+
+    def heatmap(self) -> dict[str, Any]:
+        with self.lock:
+            self._send("heatmap")
+            return self._read_json_line("heatmap ")
+
+    def features(self) -> list[float]:
+        with self.lock:
+            self._send("features")
+            assert self.proc.stdout is not None
+            deadline = time.time() + 10.0
+            while time.time() < deadline:
+                line = self.proc.stdout.readline()
+                if not line:
+                    continue
+                line = line.strip()
+                if line.startswith("features "):
+                    return [float(token) for token in line.split()[1:]]
+            raise TimeoutError("engine did not return features")
+
+    def bestmove(
+        self,
+        moves: list[str],
+        depth: int,
+        on_info: Callable[[dict[str, Any]], None] | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         with self.lock:
             position = "position startpos"
             if moves:
@@ -618,13 +1105,20 @@ class Engine:
 
             assert self.proc.stdout is not None
             deadline = time.time() + 30.0
+            search_info: dict[str, Any] = {}
             while time.time() < deadline:
                 line = self.proc.stdout.readline()
                 if not line:
                     continue
                 line = line.strip()
+                if line.startswith("info "):
+                    parsed = self._parse_info_line(line)
+                    if parsed:
+                        search_info = parsed
+                        if on_info is not None:
+                            on_info(parsed)
                 if line.startswith("bestmove "):
-                    return line.split()[1]
+                    return line.split()[1], search_info
             raise TimeoutError("engine did not return bestmove")
 
     def close(self) -> None:
@@ -669,9 +1163,8 @@ class Game:
         self.depth = depth
         self.player_color = player_color
         self.last_move: str | None = None
+        self.last_search_info: dict[str, Any] = {}
         self.lock = threading.Lock()
-        if self.engine_to_move():
-            self.play_engine_move()
 
     def engine_to_move(self) -> bool:
         engine_is_white = self.player_color == "black"
@@ -683,10 +1176,8 @@ class Game:
     def player_to_move(self) -> bool:
         return not self.is_game_over() and not self.engine_to_move()
 
-    def play_engine_move(self) -> None:
-        if self.is_game_over():
-            return
-        move_text = self.engine.bestmove(self.moves, self.depth)
+    def apply_engine_move(self, move_text: str, search_info: dict[str, Any]) -> None:
+        self.last_search_info = search_info
         if move_text == "0000":
             return
         move = bc.Move.from_uci(move_text)
@@ -708,8 +1199,6 @@ class Game:
             if move not in self.board.legal_moves():
                 raise ValueError(f"Illegal move: {move_text}")
             self.push(move)
-            if not self.is_game_over():
-                self.play_engine_move()
 
     def state(self) -> dict[str, Any]:
         with self.lock:
@@ -736,6 +1225,7 @@ class Game:
                 if king_sq is not None:
                     check_square = str(king_sq).lower()
 
+            score = int(self.last_search_info.get("score", 0))
             return {
                 "board": board_map,
                 "legal_moves": legal_moves,
@@ -749,6 +1239,9 @@ class Game:
                 "status": status,
                 "result": result,
                 "fen": self.board.fen(),
+                "score": score,
+                "search_info": self.last_search_info,
+                "pv": self.last_search_info.get("pv", []),
             }
 
 
@@ -756,6 +1249,10 @@ class Game:
 class GameSession:
     game: Game
     last_seen: float
+    thinking: bool = False
+    search_info: dict[str, Any] = field(default_factory=dict)
+    thinking_error: str | None = None
+    session_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 class App:
@@ -816,7 +1313,56 @@ class App:
             self.default_player_color if player_color is None else player_color,
         )
 
-    def game_for_session(self, session_id: str | None) -> tuple[str, Game]:
+    def _public_state(self, session: GameSession) -> dict[str, Any]:
+        state = session.game.state()
+        with session.session_lock:
+            state["thinking"] = session.thinking
+            if session.thinking:
+                state["search_info"] = dict(session.search_info)
+                state["pv"] = session.search_info.get("pv", [])
+            if session.thinking_error:
+                state["thinking_error"] = session.thinking_error
+        return state
+
+    def _start_engine_think(self, session: GameSession) -> None:
+        with session.game.lock:
+            if session.game.is_game_over() or not session.game.engine_to_move():
+                return
+            moves = list(session.game.moves)
+            depth = session.game.depth
+
+        with session.session_lock:
+            if session.thinking:
+                return
+            session.thinking = True
+            session.thinking_error = None
+            session.search_info = {}
+
+        def worker() -> None:
+            try:
+                def on_info(info: dict[str, Any]) -> None:
+                    with session.session_lock:
+                        session.search_info = dict(info)
+
+                move_text, search_info = self.engine.bestmove(moves, depth, on_info=on_info)
+                with session.game.lock:
+                    session.game.apply_engine_move(move_text, search_info)
+            except Exception as exc:
+                with session.session_lock:
+                    session.thinking_error = str(exc)
+            finally:
+                with session.session_lock:
+                    session.thinking = False
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _maybe_start_engine(self, session: GameSession) -> None:
+        with session.game.lock:
+            needs_engine = not session.game.is_game_over() and session.game.engine_to_move()
+        if needs_engine:
+            self._start_engine_think(session)
+
+    def game_for_session(self, session_id: str | None) -> tuple[str, GameSession]:
         now = time.time()
         with self.lock:
             self._prune_sessions_locked(now)
@@ -826,11 +1372,43 @@ class App:
             else:
                 self.sessions[session_id].last_seen = now
             self._enforce_session_cap_locked(session_id)
-            return session_id, self.sessions[session_id].game
+            return session_id, self.sessions[session_id]
 
     def state_for_session(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
-        session_id, game = self.game_for_session(session_id)
-        return session_id, game.state()
+        session_id, session = self.game_for_session(session_id)
+        return session_id, self._public_state(session)
+
+    def thinking_for_session(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
+        session_id, session = self.game_for_session(session_id)
+        with session.session_lock:
+            payload: dict[str, Any] = {
+                "thinking": session.thinking,
+                "search_info": dict(session.search_info),
+            }
+            if session.thinking_error:
+                payload["error"] = session.thinking_error
+        return session_id, payload
+
+    def graph_for_session(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
+        session_id, session = self.game_for_session(session_id)
+        with session.game.lock:
+            moves = list(session.game.moves)
+        self.engine.set_position(moves)
+        return session_id, self.engine.graph()
+
+    def heatmap_for_session(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
+        session_id, session = self.game_for_session(session_id)
+        with session.game.lock:
+            moves = list(session.game.moves)
+        self.engine.set_position(moves)
+        return session_id, self.engine.heatmap()
+
+    def features_for_session(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
+        session_id, session = self.game_for_session(session_id)
+        with session.game.lock:
+            moves = list(session.game.moves)
+        self.engine.set_position(moves)
+        return session_id, {"features": self.engine.features()}
 
     def new_game(self, session_id: str | None, depth: int, player_color: str) -> tuple[str, dict[str, Any]]:
         now = time.time()
@@ -840,13 +1418,15 @@ class App:
                 session_id = self._new_session_id_locked()
             self.sessions[session_id] = GameSession(self._make_game(depth, player_color), now)
             self._enforce_session_cap_locked(session_id)
-            game = self.sessions[session_id].game
-        return session_id, game.state()
+            session = self.sessions[session_id]
+        self._maybe_start_engine(session)
+        return session_id, self._public_state(session)
 
     def make_move(self, session_id: str | None, move: str) -> tuple[str, dict[str, Any]]:
-        session_id, game = self.game_for_session(session_id)
-        game.make_player_move(move)
-        return session_id, game.state()
+        session_id, session = self.game_for_session(session_id)
+        session.game.make_player_move(move)
+        self._maybe_start_engine(session)
+        return session_id, self._public_state(session)
 
     def close(self) -> None:
         self.engine.close()
@@ -927,6 +1507,46 @@ def make_handler(app: App):
                     session_max_age=app.session_ttl_seconds,
                 )
                 return
+            if path == "/api/thinking":
+                session_id, payload = app.thinking_for_session(self.request_session_id())
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    payload,
+                    session_id=session_id,
+                    session_max_age=app.session_ttl_seconds,
+                )
+                return
+            if path == "/api/graph":
+                session_id, payload = app.graph_for_session(self.request_session_id())
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    payload,
+                    session_id=session_id,
+                    session_max_age=app.session_ttl_seconds,
+                )
+                return
+            if path == "/api/heatmap":
+                session_id, payload = app.heatmap_for_session(self.request_session_id())
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    payload,
+                    session_id=session_id,
+                    session_max_age=app.session_ttl_seconds,
+                )
+                return
+            if path == "/api/features":
+                session_id, payload = app.features_for_session(self.request_session_id())
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    payload,
+                    session_id=session_id,
+                    session_max_age=app.session_ttl_seconds,
+                )
+                return
             json_response(self, HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
         def do_POST(self) -> None:
@@ -938,7 +1558,7 @@ def make_handler(app: App):
                     color = payload.get("player_color", "white")
                     if color not in {"white", "black"}:
                         raise ValueError("player_color must be white or black")
-                    depth = max(1, min(5, int(payload.get("depth", 2))))
+                    depth = max(1, min(6, int(payload.get("depth", 2))))
                     session_id, state = app.new_game(self.request_session_id(), depth, color)
                     json_response(
                         self,
@@ -983,7 +1603,7 @@ def main() -> int:
 
     app = App(
         engine_path,
-        max(1, min(5, args.depth)),
+        max(1, min(6, args.depth)),
         args.color,
         args.session_ttl,
         args.max_sessions,
