@@ -27,7 +27,7 @@ Lulzfish is a playable UCI chess engine prototype with a now-verified move gener
 - `tools/lulzfish_gui.py` browser board backed by bulletchess legality checks and per-browser game sessions
 - Browser-side WASM build (`tools/build_wasm.sh`) with a static chessground GUI and Web Worker engine isolation
 - Self-play with data recording (`selfplay_data.txt` for future ML training)
-- `perft_test` and `search_regression` build targets for correctness and strength guardrails
+- `perft_test`, `search_regression`, and `graph_benchmark` build targets for correctness, strength guardrails, and graph-eval speed tracking
 
 The current priority is to keep correctness locked down while replacing scalar attack generation with measured, verified fast paths and turning the graph evaluator from a rebuilt-per-eval prototype into an actually incremental accumulator.
 
@@ -122,9 +122,13 @@ cmake --build . -j
 
 # Strength guardrails: search-regression positions
 ./search_regression
+
+# Measurement: graph relation/eval/update throughput
+./graph_benchmark
 ```
 
 Both must pass in Release *and* Debug builds before any change touching movegen, search, or eval is considered safe.
+`graph_benchmark` is informational rather than pass/fail; use it to compare graph evaluator and incremental-update changes on the same hardware/build.
 
 ## Philosophy & First Principles
 

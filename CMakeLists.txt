@@ -136,6 +136,16 @@ if(LULZFISH_BUILD_TESTS)
     )
     target_compile_features(search_regression PRIVATE cxx_std_23)
 
+    add_executable(graph_benchmark
+        tests/graph_benchmark.cpp
+        ${LULZFISH_CORE_SOURCES}
+    )
+    target_include_directories(graph_benchmark
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_compile_features(graph_benchmark PRIVATE cxx_std_23)
+
     # Later we can add Catch2 or a custom harness
 endif()
 
