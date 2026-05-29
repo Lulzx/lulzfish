@@ -26,9 +26,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Emscripten
-        uses: mymind/emsetup@v14
-        with:
-          version: latest
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git /opt/emsdk
+          cd /opt/emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+          echo "PATH=/opt/emsdk/upstream/emscripten:$PATH" >> "$GITHUB_ENV"
 
       - name: Build WASM bundle
         run: tools/build_wasm.sh
