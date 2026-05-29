@@ -63,6 +63,32 @@ python3 tools/rl/train_linear_models.py \
 The exported header is a measurement artifact, not automatically compiled into
 the engine. Integrate it only after comparing NPS and search-regression impact.
 
+### MLP eval (engine features)
+
+`train_mlp_eval.py` trains the 64→32→16→1 residual evaluator and exports a
+`.bin` loadable by the engine. Prefer `--features-from-engine` so features are
+extracted by the engine itself (single source of truth — the pure-Python
+extractor omits the graph relation features and would cause a train/serve
+mismatch once the model is loaded):
+
+```bash
+python3 tools/rl/train_mlp_eval.py \
+  --data data/lulzfish_training.jsonl \
+  --engine ./build/lulzfish \
+  --features-from-engine \
+  --out-bin data/lulzfish_mlp.bin
+```
+
+Load it in the engine via the UCI option (off by default):
+
+```
+setoption name EvalFile value data/lulzfish_mlp.bin
+```
+
+Inspect the engine's feature vector for the current position with the
+`features` debug command. Always compare strength (self-play / Stockfish)
+before adopting a learned model.
+
 ## PufferLib Environment
 
 `tools/rl/lulzfish_env.py` exposes the bulletchess/Gym-side helpers:

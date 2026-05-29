@@ -7,9 +7,14 @@ Pipeline:
   3. Train a 64->32->16->1 MLP to predict the target score.
   4. Export weights as binary blob consumed by graph_eval.cpp.
 
-The feature extraction mirrors graph_eval.cpp extract_features() but without
-the graph-derived relation features (those need the PositionGraph from C++).
-For a full graph-feature trainer the C++ engine should dump feature vectors.
+The Python feature extractor mirrors graph_eval.cpp extract_features() but
+omits the graph-derived relation features (indices 6-17) and center control
+(index 28), which depend on the C++ PositionGraph. Training on it therefore
+has a train/serve mismatch once a model is loaded in the engine.
+
+Prefer --features-from-engine: the engine's `features` command returns the
+exact 64-d vector used at inference, so training and serving stay identical.
+The pure-Python path is kept only for quick offline experiments.
 """
 
 from __future__ import annotations
@@ -369,12 +374,17 @@ def train_step(params: dict[str, np.ndarray], features: np.ndarray, targets: np.
     return params, float(loss)
 
 
-def prepare_data(records: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+def prepare_data(records: list[dict], engine: "UciEngine | None" = None) -> tuple[np.ndarray, np.ndarray]:
     xs = []
     ys = []
     for r in records:
-        board = bc.Board.from_fen(r["fen"])
-        fen_features = extract_features(board)
+        if engine is not None:
+            # Single source of truth: identical extraction to inference,
+            # including graph-derived relation features.
+            fen_features = engine.features(r["fen"])
+        else:
+            board = bc.Board.from_fen(r["fen"])
+            fen_features = extract_features(board)
 
         wf = fen_features[:FEATURES_PER_COLOR]
         bf = fen_features[FEATURES_PER_COLOR:]
@@ -482,6 +492,24 @@ class UciEngine:
                 bestmove = line.split()[1] if len(line.split()) > 1 else "0000"
                 return bestmove, score_cp
 
+    def features(self, fen: str) -> np.ndarray:
+        """Return the engine's 64-d feature vector for a FEN.
+
+        Uses the engine as the single source of truth so training and
+        inference share identical extraction (including the graph-derived
+        relation features that cannot be reconstructed in Python).
+        """
+        self._send(f"position fen {fen}")
+        self._send("features")
+        while True:
+            line = self._readline()
+            if line.startswith("features"):
+                vals = [float(x) for x in line.split()[1:]]
+                if len(vals) != FEATURES_TOTAL:
+                    raise RuntimeError(
+                        f"engine returned {len(vals)} features, expected {FEATURES_TOTAL}")
+                return np.array(vals, dtype=np.float32)
+
     def _send(self, cmd: str):
         assert self.process.stdin
         self.process.stdin.write(cmd + "\n")
@@ -558,6 +586,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--generate", action="store_true", help="Generate training data before training")
     p.add_argument("--games", type=int, default=20, help="Games for data generation")
     p.add_argument("--target-depth", type=int, default=3, help="Search depth for labels")
+    p.add_argument("--features-from-engine", action="store_true",
+                   help="Extract features via the engine's `features` command "
+                        "(single source of truth; includes graph features). "
+                        "Recommended — the Python extractor omits graph relations.")
     p.add_argument("--epochs", type=int, default=200, help="Training epochs")
     p.add_argument("--lr", type=float, default=0.01, help="Learning rate")
     p.add_argument("--seed", type=int, default=42)
@@ -576,7 +608,14 @@ def main(argv: list[str]) -> int:
         print(f"Loaded {len(records)} positions from {args.data}")
 
     print("Extracting features...")
-    X, y = prepare_data(records)
+    feat_engine = UciEngine(args.engine) if args.features_from_engine else None
+    if feat_engine is not None:
+        print(f"  using engine features from {args.engine}")
+    try:
+        X, y = prepare_data(records, feat_engine)
+    finally:
+        if feat_engine is not None:
+            feat_engine.close()
     print(f"  X: {X.shape}, y: {y.shape}, y range: [{y.min():.1f}, {y.max():.1f}]")
 
     params = init_weights(seed=args.seed)
