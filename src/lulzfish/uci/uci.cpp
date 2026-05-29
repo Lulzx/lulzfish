@@ -3,11 +3,14 @@
 #include "lulzfish/core/movegen.hpp"
 #include "lulzfish/core/position.hpp"
 #include "lulzfish/eval/graph_eval.hpp"
+#include "lulzfish/eval/nnue.hpp"
+#include "lulzfish/eval/sheaftop.hpp"
 #include "lulzfish/search/search.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -78,6 +81,7 @@ static void handle_uci() {
     std::cout << "option name Threads type spin default 1 min 1 max "
               << max_search_threads() << "\n";
     std::cout << "option name EvalFile type string default <empty>\n";
+    std::cout << "option name NNUEFile type string default <empty>\n";
     std::cout << "uciok\n";
 }
 
@@ -150,6 +154,9 @@ static void handle_setoption(const std::vector<std::string>& tokens) {
         std::cout << "info string EvalFile "
                   << (lulzfish::eval::graph::global_model_loaded() ? "loaded " : "failed to load ")
                   << value << "\n";
+    } else if (name == "NNUEFile" && !value.empty() && value != "<empty>") {
+        bool ok = lulzfish::eval::nnue::load(value);
+        std::cout << "info string NNUEFile " << (ok ? "loaded " : "failed to load ") << value << "\n";
     }
 }
 
@@ -273,20 +280,111 @@ static void handle_heatmap() {
     std::cout << out.str() << "\n";
 }
 
+static void handle_topology(bool exact) {
+    if (!position_set) {
+        current_position.set_startpos();
+        position_set = true;
+    }
+
+    if (!lulzfish::eval::sheaftop::is_enabled()) {
+        std::cout << "topology {\"ok\":false,\"error\":\"SheafTop disabled\"}\n";
+        return;
+    }
+
+    // Force a full rebuild if exact mode requested
+    if (exact) {
+        const_cast<lulzfish::eval::graph::PositionGraph&>(
+            current_position.graph()).rebuild_topology(current_position);
+    } else {
+        // Ensure topology is up to date (lazy rebuild)
+        const_cast<lulzfish::eval::graph::PositionGraph&>(
+            current_position.graph()).ensure_topology(current_position);
+    }
+
+    const auto& summary = current_position.graph().topo_summary();
+
+    std::ostringstream out;
+    out << "topology {\"ok\":true,"
+        << "\"exact\":" << (exact ? "true" : "false") << ","
+        << "\"h0_persist_sum\":" << summary.h0_persist_sum << ","
+        << "\"h1_tension\":" << summary.h1_tension << ","
+        << "\"h1_loop_count\":" << summary.h1_loop_count << ","
+        << "\"h0_consistency\":" << summary.h0_consistency << ","
+        << "\"rebuild_generation\":" << summary.rebuild_generation << ","
+        << "\"persist_image\":[";
+    for (size_t i = 0; i < lulzfish::eval::sheaftop::PERSIST_IMAGE_DIM; ++i) {
+        if (i > 0) out << ",";
+        out << std::fixed << std::setprecision(4) << summary.persist_image[i];
+    }
+    out << "]}";
+    std::cout << out.str() << "\n";
+}
+
 static void handle_go(const std::vector<std::string>& tokens) {
     if (!position_set) {
         current_position.set_startpos();
         position_set = true;
     }
 
+    constexpr int kMaxIterativeDepth = 64;
+
     SearchLimits limits;
     limits.depth = 4;
     limits.threads = search_threads;
 
+    int depth_token = 0;
+    int movetime = 0;
+    long long nodes = 0;
+    int wtime = 0, btime = 0, winc = 0, binc = 0, movestogo = 0;
+    bool infinite = false;
+
+    auto next_int = [&](size_t i) -> int {
+        return (i + 1 < tokens.size()) ? std::stoi(tokens[i + 1]) : 0;
+    };
+
     for (size_t i = 1; i < tokens.size(); ++i) {
-        if (tokens[i] == "depth" && i + 1 < tokens.size()) {
-            limits.depth = std::stoi(tokens[i+1]);
-        }
+        const std::string& t = tokens[i];
+        if (t == "depth") depth_token = next_int(i);
+        else if (t == "nodes") nodes = (i + 1 < tokens.size()) ? std::stoll(tokens[i + 1]) : 0;
+        else if (t == "movetime") movetime = next_int(i);
+        else if (t == "wtime") wtime = next_int(i);
+        else if (t == "btime") btime = next_int(i);
+        else if (t == "winc") winc = next_int(i);
+        else if (t == "binc") binc = next_int(i);
+        else if (t == "movestogo") movestogo = next_int(i);
+        else if (t == "infinite") infinite = true;
+    }
+
+    if (nodes > 0) {
+        // Node-budgeted search: deepen until the budget is spent (flat, fast,
+        // position-independent move cost). Honour an explicit depth cap too.
+        limits.max_nodes = static_cast<std::uint64_t>(nodes);
+        limits.depth = depth_token > 0 ? depth_token : kMaxIterativeDepth;
+        if (movetime > 0) limits.movetime_ms = movetime;
+    } else if (depth_token > 0 && movetime > 0) {
+        // Depth-limited search with a wall-clock safety cap: deepen up to
+        // depth_token but abort if the budget is spent (prevents pathological
+        // qsearch blow-ups from hanging on a single move).
+        limits.depth = depth_token;
+        limits.movetime_ms = movetime;
+    } else if (movetime > 0) {
+        limits.movetime_ms = movetime;
+        limits.depth = kMaxIterativeDepth;
+    } else if (wtime > 0 || btime > 0) {
+        // Allocate a per-move slice of the remaining clock plus most of the
+        // increment, assuming a finite horizon when movestogo is absent.
+        bool white = current_position.side_to_move() == Color::White;
+        int time_left = white ? wtime : btime;
+        int inc = white ? winc : binc;
+        int moves = movestogo > 0 ? movestogo : 30;
+        int budget = time_left / moves + (inc * 3) / 4;
+        budget = std::min(budget, time_left - 30);   // never flag
+        limits.movetime_ms = std::max(10, budget);
+        limits.depth = kMaxIterativeDepth;
+    } else if (infinite) {
+        limits.depth = kMaxIterativeDepth;
+    } else if (depth_token > 0) {
+        limits.depth = depth_token;
     }
 
     SearchResult result = lulzfish::search::search_root(
@@ -332,6 +430,12 @@ void loop() {
             handle_graph();
         } else if (tokens[0] == "heatmap") {
             handle_heatmap();
+        } else if (tokens[0] == "topology") {
+            // Debug: dump topological summary (exact rebuild path)
+            handle_topology(true);
+        } else if (tokens[0] == "topology_approx") {
+            // Debug: dump topological summary (incremental approximate path)
+            handle_topology(false);
         } else if (tokens[0] == "features") {
             // Debug: dump the 64-d feature vector for the current position so
             // training tooling can use the engine as the single source of truth
@@ -347,6 +451,18 @@ void loop() {
                 std::cout << ' ' << feats[i];
             }
             std::cout << "\n";
+        } else if (tokens[0] == "nnueeval") {
+            // Debug: NNUE static eval (cp, side-to-move POV) for the current
+            // position. Used by tools/rl/nnue_parity.py to verify C++/torch match.
+            if (!position_set) {
+                current_position.set_startpos();
+                position_set = true;
+            }
+            if (lulzfish::eval::nnue::loaded()) {
+                std::cout << "nnueeval cp " << lulzfish::eval::nnue::evaluate(current_position) << "\n";
+            } else {
+                std::cout << "nnueeval none\n";
+            }
         } else if (tokens[0] == "bench") {
             lulzfish::search::bench(4);
         } else if (tokens[0] == "train") {

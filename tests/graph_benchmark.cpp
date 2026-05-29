@@ -12,6 +12,7 @@
 #include "lulzfish/core/movegen.hpp"
 #include "lulzfish/core/position.hpp"
 #include "lulzfish/eval/graph_eval.hpp"
+#include "lulzfish/eval/sheaftop.hpp"
 
 #include <algorithm>
 #include <array>
@@ -158,6 +159,61 @@ TimerResult bench_make_unmake_graph_updates(const std::vector<PreparedPosition>&
     return {std::chrono::duration<double>(end - start).count(), moves};
 }
 
+TimerResult bench_topo_rebuild(const std::vector<PreparedPosition>& positions, int iterations) {
+    uint64_t rebuilds = 0;
+    auto start = Clock::now();
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        for (const auto& entry : positions) {
+            lulzfish::eval::sheaftop::TopoSummary summary;
+            lulzfish::eval::sheaftop::full_rebuild(entry.pos, summary);
+            ++rebuilds;
+        }
+    }
+
+    auto end = Clock::now();
+    return {std::chrono::duration<double>(end - start).count(), rebuilds};
+}
+
+bool topo_consistency_check(const std::vector<PreparedPosition>& positions) {
+    bool all_ok = true;
+    int checked = 0;
+    int passed = 0;
+
+    for (const auto& entry : positions) {
+        // Compute exact topology
+        lulzfish::eval::sheaftop::TopoSummary exact;
+        lulzfish::eval::sheaftop::full_rebuild(entry.pos, exact);
+
+        // Check that incremental matches exact (Phase 0: they should be identical)
+        const auto& incremental = entry.pos.graph().topo_summary();
+        bool ok = lulzfish::eval::sheaftop::verify_consistency(entry.pos, incremental, 0.01f);
+
+        if (!ok) {
+            std::cout << "  WARNING: Topology consistency check failed for " << entry.name << "\n";
+            std::cout << "    Exact:      h1_tension=" << exact.h1_tension
+                      << " h1_loop=" << exact.h1_loop_count << "\n";
+            std::cout << "    Incremental: h1_tension=" << incremental.h1_tension
+                      << " h1_loop=" << incremental.h1_loop_count << "\n";
+            all_ok = false;
+        }
+        ++checked;
+        if (ok) ++passed;
+    }
+
+    std::cout << "  Topology consistency: " << passed << "/" << checked << " passed\n";
+    return all_ok;
+}
+
+void print_topo_summary(const std::string& name, const Position& pos) {
+    const auto& summary = pos.graph().topo_summary();
+    std::cout << "  " << std::left << std::setw(12) << name
+              << " h0_persist=" << std::right << std::setw(6) << std::fixed << std::setprecision(2) << summary.h0_persist_sum
+              << " h1_tension=" << std::setw(6) << summary.h1_tension
+              << " h1_loops=" << std::setw(4) << summary.h1_loop_count
+              << " h0_consist=" << std::setw(5) << summary.h0_consistency << "\n";
+}
+
 void print_metric(const std::string& name, const TimerResult& result, const std::string& unit) {
     std::cout << std::left << std::setw(34) << name
               << std::right << std::setw(12) << result.units << " "
@@ -219,8 +275,22 @@ int main() {
     print_metric("feature extraction", bench_feature_extract(positions, 120000), "extract");
     print_metric("full graph rebuild", bench_graph_rebuild(positions, 120000), "rebuild");
     print_metric("make/unmake graph update", bench_make_unmake_graph_updates(positions, 1200), "move");
+    print_metric("topology full rebuild", bench_topo_rebuild(positions, 12000), "topo");
+
+    std::cout << "\nTopological features:\n";
+    for (const auto& entry : positions) {
+        print_topo_summary(entry.name, entry.pos);
+    }
+
+    std::cout << "\nTopology consistency check:\n";
+    bool topo_ok = topo_consistency_check(positions);
 
     std::cout << "\nNote: make/unmake graph update currently includes full relation rebuilds.\n";
     std::cout << "A future incremental accumulator should move that line materially closer to normal make/unmake cost.\n";
+
+    if (!topo_ok) {
+        std::cout << "\nWARNING: Topology consistency check had failures.\n";
+    }
+
     return 0;
 }

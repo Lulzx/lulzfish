@@ -87,6 +87,9 @@ set(LULZFISH_CORE_SOURCES
     src/lulzfish/core/movegen.cpp
     src/lulzfish/eval/material.cpp
     src/lulzfish/eval/graph_eval.cpp
+    src/lulzfish/eval/nnue.cpp
+    src/lulzfish/eval/sheaftop.cpp
+    src/lulzfish/eval/persistence.cpp
     src/lulzfish/search/search.cpp
     src/lulzfish/search/transposition.cpp
     src/lulzfish/uci/uci.cpp
@@ -145,6 +148,16 @@ if(LULZFISH_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_compile_features(graph_benchmark PRIVATE cxx_std_23)
+
+    add_executable(topo_consistency_test
+        tests/topo_consistency_test.cpp
+        ${LULZFISH_CORE_SOURCES}
+    )
+    target_include_directories(topo_consistency_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_compile_features(topo_consistency_test PRIVATE cxx_std_23)
 
     # Later we can add Catch2 or a custom harness
 endif()

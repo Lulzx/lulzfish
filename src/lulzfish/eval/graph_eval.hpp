@@ -21,6 +21,7 @@
 //==============================================================================
 
 #include "lulzfish/core/types.hpp"   // for Move, Square, etc.
+#include "sheaf_state.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -76,6 +77,11 @@ struct Relation {
 constexpr size_t FEATURES_PER_COLOR = 32;
 constexpr size_t FEATURES_TOTAL = FEATURES_PER_COLOR * 2;
 
+// SheafTop topological feature budget (added to feature vector)
+constexpr size_t TOPO_FEATURES_PER_COLOR = sheaftop::TOPO_FEATURE_DIM;
+constexpr size_t FEATURES_WITH_TOPO_PER_COLOR = FEATURES_PER_COLOR + TOPO_FEATURES_PER_COLOR;
+constexpr size_t FEATURES_WITH_TOPO_TOTAL = FEATURES_WITH_TOPO_PER_COLOR * 2;
+
 enum FeatureIndex : size_t {
     // Material (scaled centipawns / 100)
     F_MATERIAL_PAWN   = 0,
@@ -115,6 +121,16 @@ enum FeatureIndex : size_t {
     F_OPEN_FILE_ROOKS = 29,
     F_BISHOP_PAIR = 30,
     F_PHASE = 31  // game phase indicator (0=opening, 1=endgame)
+};
+
+// SheafTop topological feature indices (offset from FEATURES_PER_COLOR)
+enum TopoFeatureIndex : size_t {
+    F_TOPO_H0_PERSIST_SUM   = 0,
+    F_TOPO_H1_TENSION       = 1,
+    F_TOPO_H1_LOOP_COUNT    = 2,
+    F_TOPO_H0_CONSISTENCY   = 3,
+    F_TOPO_PERSIST_IMAGE_START = 4,  // 48 dims of persistence image
+    F_TOPO_PERSIST_IMAGE_END   = F_TOPO_PERSIST_IMAGE_START + sheaftop::PERSIST_IMAGE_DIM,
 };
 
 // Mutable feature accumulator (for incremental updates — future)
@@ -157,6 +173,10 @@ float mlp_forward(const std::array<float, FEATURES_TOTAL>& features, const MLPWe
 void extract_features(const core::Position& pos,
                       std::array<float, FEATURES_TOTAL>& features);
 
+// Extract features including topological features (when SheafTop is enabled).
+void extract_features_with_topo(const core::Position& pos,
+                                 std::array<float, FEATURES_WITH_TOPO_TOTAL>& features);
+
 // Full learned eval: extract features → MLP forward → cp score.
 float learned_evaluate(const core::Position& pos, const MLPWeights& weights);
 
@@ -186,14 +206,27 @@ public:
     size_t node_count() const { return nodes_.size(); }
     size_t relation_count() const { return relations_.size(); }
 
+    // SheafTop topological summary (maintained incrementally)
+    const sheaftop::TopoSummary& topo_summary() const { return topo_summary_; }
+    sheaftop::TopoSummary& topo_summary_mut() { return topo_summary_; }
+
+    // Full rebuild of topological features (Tier 2, expensive)
+    void rebuild_topology(const core::Position& pos);
+
+    // Lazy rebuild: only recomputes if generation is 0 (stale)
+    void ensure_topology(const core::Position& pos);
+
 private:
     std::vector<PieceNode> nodes_;
     std::vector<Relation> relations_;
 
+    // SheafTop topological state
+    sheaftop::TopoSummary topo_summary_;
+
     void refresh_nodes(const core::Position& pos);
     void rebuild_relations(const core::Position& pos); // fallback
     void refresh_relations_after_changed_squares(const core::Position& pos,
-                                                 const std::vector<core::Square>& changed_squares);
+                                                  const std::vector<core::Square>& changed_squares);
 
     // Delta helpers (local rescans around changed squares)
     void remove_relations_involving(core::Square sq);

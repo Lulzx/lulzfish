@@ -20,6 +20,7 @@
 #include "bitboard.hpp"
 #include "types.hpp"
 #include "lulzfish/eval/graph_eval.hpp"
+#include "lulzfish/eval/sheaf_state.hpp"
 
 #include <array>
 #include <cstdint>
@@ -53,6 +54,9 @@ struct StateInfo {
 
     // Graph delta for exact symmetric undo (key for efficient relational eval)
     std::vector<lulzfish::eval::graph::Relation> graph_removed_relations;
+
+    // SheafTop topological delta for incremental undo
+    lulzfish::eval::sheaftop::TopologicalDelta topo_delta;
 };
 
 //------------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 #include "graph_eval.hpp"
 
+#include "nnue.hpp"
+#include "sheaftop.hpp"
 #include "lulzfish/core/position.hpp"
 #include "lulzfish/core/attacks.hpp"
 
@@ -1007,6 +1009,43 @@ void extract_features(const Position& pos,
     }
 }
 
+void extract_features_with_topo(const Position& pos,
+                                 std::array<float, FEATURES_WITH_TOPO_TOTAL>& features) {
+    // First extract the base 64 features
+    std::array<float, FEATURES_TOTAL> base_features;
+    extract_features(pos, base_features);
+
+    // Copy base features
+    for (size_t i = 0; i < FEATURES_TOTAL; ++i) {
+        features[i] = base_features[i];
+    }
+
+    // Extract topological features if enabled
+    if (sheaftop::is_enabled()) {
+        std::array<float, sheaftop::TOPO_FEATURE_DIM> white_topo;
+        std::array<float, sheaftop::TOPO_FEATURE_DIM> black_topo;
+
+        sheaftop::extract_features(pos.graph().topo_summary(), white_topo, black_topo);
+
+        // White perspective: base features + white topological features
+        size_t white_base = 0;
+        for (size_t i = 0; i < sheaftop::TOPO_FEATURE_DIM; ++i) {
+            features[FEATURES_TOTAL + white_base + i] = white_topo[i];
+        }
+
+        // Black perspective: base features + black topological features
+        size_t black_base = FEATURES_WITH_TOPO_PER_COLOR;
+        for (size_t i = 0; i < sheaftop::TOPO_FEATURE_DIM; ++i) {
+            features[FEATURES_TOTAL + black_base + i] = black_topo[i];
+        }
+    } else {
+        // Zero out topological features when disabled
+        for (size_t i = FEATURES_TOTAL; i < FEATURES_WITH_TOPO_TOTAL; ++i) {
+            features[i] = 0.0f;
+        }
+    }
+}
+
 float learned_evaluate(const Position& pos, const MLPWeights& weights) {
     std::array<float, FEATURES_TOTAL> features;
     extract_features(pos, features);
@@ -1031,6 +1070,11 @@ float learned_evaluate(const Position& pos, const MLPWeights& weights) {
 //==============================================================================
 
 int evaluate(const Position& pos) {
+    // When an NNUE net is loaded it fully replaces the handcrafted/graph eval.
+    if (nnue::loaded()) {
+        return nnue::evaluate(pos);
+    }
+
     const PositionGraph& graph = pos.graph();
 
     int white_score = evaluate_color_baseline(pos, Color::White) -
@@ -1055,6 +1099,9 @@ int evaluate(const Position& pos) {
 void PositionGraph::update_from_position(const Position& pos) {
     refresh_nodes(pos);
     rebuild_relations(pos);
+
+    // SheafTop: Mark topology as stale (lazy rebuild on next access)
+    topo_summary_.rebuild_generation = 0;
 }
 
 void PositionGraph::refresh_nodes(const Position& pos) {
@@ -1252,11 +1299,34 @@ void PositionGraph::apply_move(Move /*m*/, StateInfo& undo, const Position& pos_
 
     refresh_nodes(pos_after);
     rebuild_relations(pos_after);
+
+    // SheafTop: Apply topological delta (Tier 0 approximate update)
+    if (sheaftop::is_enabled()) {
+        sheaftop::apply_move_incremental(undo, pos_after, topo_summary_);
+    }
 }
 
-void PositionGraph::undo_move(Move /*m*/, const StateInfo& /*before*/, const Position& pos_after_undo) {
+void PositionGraph::undo_move(Move /*m*/, const StateInfo& before, const Position& pos_after_undo) {
     refresh_nodes(pos_after_undo);
     rebuild_relations(pos_after_undo);
+
+    // SheafTop: Undo topological delta
+    if (sheaftop::is_enabled()) {
+        sheaftop::undo_move_incremental(before, topo_summary_);
+    }
+}
+
+void PositionGraph::rebuild_topology(const Position& pos) {
+    if (sheaftop::is_enabled()) {
+        sheaftop::full_rebuild(pos, topo_summary_);
+    }
+}
+
+void PositionGraph::ensure_topology(const Position& pos) {
+    // Lazy rebuild: only recompute if generation is 0 (stale)
+    if (topo_summary_.rebuild_generation == 0 && sheaftop::is_enabled()) {
+        rebuild_topology(pos);
+    }
 }
 
 #if 0
