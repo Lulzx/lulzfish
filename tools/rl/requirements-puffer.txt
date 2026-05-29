@@ -1,0 +1,8 @@
+# PufferLib's PyPI package currently targets older Gym/Numpy stacks.
+# Use Python 3.10 or 3.11 for this venv; Python 3.14 is not a good target.
+pufferlib==3.0.0
+numpy<2
+gymnasium<=0.29.1
+gym<=0.23
+chess
+psutil

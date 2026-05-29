@@ -1,0 +1,4 @@
+bulletchess
+numpy
+gymnasium
+

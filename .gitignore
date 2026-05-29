@@ -24,6 +24,9 @@ Thumbs.db
 compile_commands.json
 __pycache__/
 web/dist/
+.venv*/
+resources
+data/
 
 # Data (large opening books, nets, tablebases — keep out of repo)
 *.bin
