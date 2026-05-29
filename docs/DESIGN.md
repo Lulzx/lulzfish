@@ -140,6 +140,21 @@ This gives us a clean correctness foundation for the next stage: reintroduce opt
 - Recent work on searchless transformers and the "dual-capability bottleneck"
 - Ethereal, Koivisto, and other clean high-quality traditional engines for search techniques
 - Various papers on learned pruning / move ordering (mixed results so far — opportunity)
+- **SheafTop** (see [docs/SHEAF_TOP.md](./SHEAF_TOP.md)) — persistent sheaf cohomology and topological invariants over the relational hypergraph as a novel inductive bias for evaluation and search control
+
+---
+
+## Active Research Directions (2026)
+
+In addition to the core NNUE baseline and relational graph evaluator, the project is exploring advanced mathematical representations. The most developed proposal is **SheafTop** (Persistent Sheaf Cohomology on Dynamic Chess Relation Hypergraphs). This direction applies tools from algebraic topology (persistent homology, sheaf theory, cohomology) to the existing `PositionGraph` in pursuit of features with superior stability, multi-scale structure, and global consistency detection.
+
+**Recommended starting point**: [docs/SHEAF_TOP_OVERVIEW.md](./SHEAF_TOP_OVERVIEW.md)
+
+Full specification: [docs/SHEAF_TOP.md](./SHEAF_TOP.md)  
+Companions:
+- [SHEAF_TOP_ROADMAP.md](./SHEAF_TOP_ROADMAP.md) — Phased implementation plan with success gates
+- [SHEAF_TOP_MATH_PRIMER.md](./SHEAF_TOP_MATH_PRIMER.md) — Accessible introduction to the topology concepts
+- [SHEAF_TOP_IMPLEMENTATION_NOTES.md](./SHEAF_TOP_IMPLEMENTATION_NOTES.md) — Early C++ sketches and integration guidance
 
 ---
 
