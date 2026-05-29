@@ -1011,17 +1011,17 @@ float learned_evaluate(const Position& pos, const MLPWeights& weights) {
     std::array<float, FEATURES_TOTAL> features;
     extract_features(pos, features);
 
-    float white_features[FEATURES_TOTAL];
-    for (size_t i = 0; i < FEATURES_TOTAL; ++i) {
-        if (i < FEATURES_PER_COLOR) {
-            white_features[i] = features[i] - features[i + FEATURES_PER_COLOR];
-        } else {
-            white_features[i] = features[i - FEATURES_PER_COLOR] - features[i];
-        }
-    }
-
+    // Must mirror the trainer's input layout exactly (train_mlp_eval.py):
+    //   diff[:FEATURES_PER_COLOR]  = white_features - black_features
+    //   diff[FEATURES_PER_COLOR:]  = black_features - white_features
+    // Any deviation here is a silent train/serve mismatch.
     std::array<float, FEATURES_TOTAL> diff_features;
-    for (size_t i = 0; i < FEATURES_TOTAL; ++i) diff_features[i] = white_features[i];
+    for (size_t i = 0; i < FEATURES_PER_COLOR; ++i) {
+        float w = features[i];
+        float b = features[i + FEATURES_PER_COLOR];
+        diff_features[i] = w - b;
+        diff_features[i + FEATURES_PER_COLOR] = b - w;
+    }
 
     return mlp_forward(diff_features, weights);
 }
