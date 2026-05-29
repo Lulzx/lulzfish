@@ -2,9 +2,12 @@
 
 #include "lulzfish/core/movegen.hpp"
 #include "lulzfish/core/position.hpp"
+#include "lulzfish/eval/graph_eval.hpp"
 #include "lulzfish/search/search.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -74,6 +77,7 @@ static void handle_uci() {
     std::cout << "id author lulz-chess project\n";
     std::cout << "option name Threads type spin default 1 min 1 max "
               << max_search_threads() << "\n";
+    std::cout << "option name EvalFile type string default <empty>\n";
     std::cout << "uciok\n";
 }
 
@@ -138,6 +142,14 @@ static void handle_setoption(const std::vector<std::string>& tokens) {
 
     if (name == "Threads" && !value.empty()) {
         search_threads = std::clamp(std::stoi(value), 1, max_search_threads());
+    } else if (name == "EvalFile" && !value.empty() && value != "<empty>") {
+        // Loads the learned MLP residual evaluator. Off unless a file is set,
+        // so the handcrafted baseline remains the default. Silently no-ops if
+        // the file is missing or malformed (see set_global_model_from_file).
+        lulzfish::eval::graph::set_global_model_from_file(value);
+        std::cout << "info string EvalFile "
+                  << (lulzfish::eval::graph::global_model_loaded() ? "loaded " : "failed to load ")
+                  << value << "\n";
     }
 }
 
@@ -200,6 +212,21 @@ void loop() {
             lulzfish::search::clear_search_state();
             current_position.set_startpos();
             position_set = false;
+        } else if (tokens[0] == "features") {
+            // Debug: dump the 64-d feature vector for the current position so
+            // training tooling can use the engine as the single source of truth
+            // for feature extraction (incl. graph-derived relation features).
+            if (!position_set) {
+                current_position.set_startpos();
+                position_set = true;
+            }
+            std::array<float, lulzfish::eval::graph::FEATURES_TOTAL> feats;
+            lulzfish::eval::graph::extract_features(current_position, feats);
+            std::cout << "features";
+            for (std::size_t i = 0; i < feats.size(); ++i) {
+                std::cout << ' ' << feats[i];
+            }
+            std::cout << "\n";
         } else if (tokens[0] == "bench") {
             lulzfish::search::bench(4);
         } else if (tokens[0] == "train") {
