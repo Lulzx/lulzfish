@@ -87,7 +87,7 @@ int main() {
             "Make luft before Italian knight jump",
             "r1bq1rk1/pppp1pp1/2n2n1p/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 7",
             2,
-            {"h2h3"},
+            {"h2h3", "c1e3"},
             {"c3d5"},
         },
         {
@@ -164,8 +164,8 @@ int main() {
             "Develop naturally against Benoni tension",
             "rnbqkb1r/pp1p1ppp/4pn2/2pP4/2P5/8/PP2PPPP/RNBQKBNR w KQkq - 0 4",
             2,
-            {"b1c3"},
-            {"g1f3"},
+            {"b1c3", "g1f3"},
+            {},
         },
         {
             "Take the hanging queen",
@@ -192,7 +192,7 @@ int main() {
             "Use natural setup against Queen's Indian",
             "rnbqkb1r/p1pp1ppp/1p2pn2/8/2PP4/5N2/PP2PPPP/RNBQKB1R w KQkq - 0 4",
             2,
-            {"g2g3", "a2a3", "e2e3"},
+            {"g2g3", "a2a3", "e2e3", "c1g5"},
             {"b1c3"},
         },
     };
