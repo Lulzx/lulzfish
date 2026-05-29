@@ -144,9 +144,48 @@ float compute_tension(const core::Position& pos, core::Square from, core::Square
     float attacker_val = static_cast<float>(piece_value(attacker_type));
     int dist = square_distance(from, to);
 
-    float tension = (victim_val / (attacker_val + 1.0f)) *
-                    (8.0f - static_cast<float>(dist)) / 8.0f;
-    return std::clamp(tension, 0.0f, 5.0f);
+    // Base tension: material exchange value weighted by distance
+    float material_tension = (victim_val / (attacker_val + 1.0f)) *
+                             (8.0f - static_cast<float>(dist)) / 8.0f;
+
+    // King safety bonus: attacks near the enemy king are more important
+    core::Color attacker_color = core::color_of(pos.piece_on(from));
+    core::Color enemy = core::opposite(attacker_color);
+    core::Bitboard enemy_king = pos.pieces(core::make_piece(enemy, core::PieceType::King));
+    float king_bonus = 0.0f;
+    if (enemy_king) {
+        core::Square king_sq = core::lsb_square(enemy_king);
+        int king_dist = square_distance(to, king_sq);
+        if (king_dist <= 2) {
+            king_bonus = 2.0f * (3.0f - static_cast<float>(king_dist)) / 3.0f;
+        }
+    }
+
+    // Piece activity bonus: central squares are more important
+    int file = core::file_of(to);
+    int rank = core::rank_of(to);
+    int center_dist = std::min(std::abs(file - 3), std::abs(file - 4)) +
+                      std::min(std::abs(rank - 3), std::abs(rank - 4));
+    float activity_bonus = (4.0f - static_cast<float>(center_dist)) / 4.0f * 0.5f;
+
+    // Check bonus: if the attack gives check, it's much more important
+    float check_bonus = 0.0f;
+    core::Bitboard attacks = core::EmptyBB;
+    switch (attacker_type) {
+        case core::PieceType::Pawn:   attacks = core::pawn_attacks(from, attacker_color); break;
+        case core::PieceType::Knight: attacks = core::knight_attacks_bb(from); break;
+        case core::PieceType::Bishop: attacks = core::bishop_attacks_bb(from, pos.occupancy()); break;
+        case core::PieceType::Rook:   attacks = core::rook_attacks_bb(from, pos.occupancy()); break;
+        case core::PieceType::Queen:  attacks = core::queen_attacks_bb(from, pos.occupancy()); break;
+        case core::PieceType::King:   attacks = core::king_attacks_bb(from); break;
+        default: break;
+    }
+    if (attacks & enemy_king) {
+        check_bonus = 3.0f;
+    }
+
+    float tension = material_tension + king_bonus + activity_bonus + check_bonus;
+    return std::clamp(tension, 0.0f, 10.0f);
 }
 
 } // anonymous namespace
@@ -334,26 +373,23 @@ void PersistenceEngine::compute_h0_persistence(
 }
 
 //==============================================================================
-// H1 Persistence (Loops) — Simplified for chess
+// H1 Persistence (Loops) — Improved for chess
 //==============================================================================
 //
-// For chess, we use a simplified H1 computation:
-// - Detect cycles in the attack/defense graph
-// - Use the tension of the weakest edge as the "death" time
-// - This captures defensive perimeters and pawn chains
+// Detects cycles in the attack/defense graph:
+// - 3-cycles (triangles): basic tactical patterns
+// - 4-cycles: defensive perimeters, pawn chains
+// - 5-cycles: more complex structures
+//
+// Each cycle's "birth" is when the last edge completes it,
+// "death" is when the weakest edge appears in the filtration.
 
 void PersistenceEngine::compute_h1_persistence(
     const std::vector<FiltrationEdge>& edges,
     size_t num_pieces,
     std::vector<PersistencePair>& diagram)
 {
-    (void)num_pieces;
-
-    // For Phase 0, we use a simplified approach:
-    // Look for triangular cycles in the graph (3-cycles)
-    // This is sufficient to capture the most important chess structures
-
-    // Build adjacency list (only ATTACKS and DEFENDS)
+    // Build adjacency list (only significant edges)
     struct AdjEntry {
         uint8_t neighbor;
         float tension;
@@ -361,33 +397,52 @@ void PersistenceEngine::compute_h1_persistence(
 
     std::vector<std::vector<AdjEntry>> adj(num_pieces);
     for (const auto& edge : edges) {
-        if (edge.tension > 0.05f) {  // Filter out very low tension edges
+        if (edge.tension > 0.1f) {  // Filter noise
             adj[edge.from_idx].push_back({edge.to_idx, edge.tension});
             adj[edge.to_idx].push_back({edge.from_idx, edge.tension});
         }
     }
 
-    // Find 3-cycles (triangles)
+    // Find cycles up to length 5
     for (size_t i = 0; i < num_pieces; ++i) {
         for (const auto& e1 : adj[i]) {
-            if (e1.neighbor <= i) continue;  // Avoid duplicates
+            if (e1.neighbor <= i) continue;
 
             for (const auto& e2 : adj[e1.neighbor]) {
-                if (e2.neighbor <= e1.neighbor) continue;
+                if (e2.neighbor <= i) continue;  // Allow back to i for 3-cycle
 
-                // Check if there's an edge from e2.neighbor back to i
+                // 3-cycle: i -> e1.neighbor -> e2.neighbor -> i
+                if (e2.neighbor == i) {
+                    float min_t = std::min({e1.tension, e2.tension});
+                    float max_t = std::max({e1.tension, e2.tension});
+                    if (max_t - min_t > 0.01f) {
+                        diagram.push_back({min_t, max_t, 1});
+                    }
+                    continue;
+                }
+
                 for (const auto& e3 : adj[e2.neighbor]) {
-                    if (e3.neighbor == i) {
-                        // Found a triangle!
-                        float min_tension = std::min({e1.tension, e2.tension, e3.tension});
-                        float max_tension = std::max({e1.tension, e2.tension, e3.tension});
+                    if (e3.neighbor <= i) continue;
 
-                        // The loop "borns" when the weakest edge appears
-                        // and "dies" when the strongest edge appears
-                        // But in a filtration, all edges exist at their tension value
-                        // So the loop appears when the last edge completes it
-                        diagram.push_back({min_tension, max_tension, 1});
-                        break;
+                    // 4-cycle: i -> e1 -> e2 -> e3 -> i
+                    if (e3.neighbor == i) {
+                        float min_t = std::min({e1.tension, e2.tension, e3.tension});
+                        float max_t = std::max({e1.tension, e2.tension, e3.tension});
+                        if (max_t - min_t > 0.01f) {
+                            diagram.push_back({min_t, max_t, 1});
+                        }
+                        continue;
+                    }
+
+                    // 5-cycle: i -> e1 -> e2 -> e3 -> e4 -> i
+                    for (const auto& e4 : adj[e3.neighbor]) {
+                        if (e4.neighbor == i) {
+                            float min_t = std::min({e1.tension, e2.tension, e3.tension, e4.tension});
+                            float max_t = std::max({e1.tension, e2.tension, e3.tension, e4.tension});
+                            if (max_t - min_t > 0.01f) {
+                                diagram.push_back({min_t, max_t, 1});
+                            }
+                        }
                     }
                 }
             }
@@ -405,23 +460,30 @@ void PersistenceEngine::compute_cohomology_scalars(
     const std::vector<PersistencePair>& h1_diagram,
     TopoSummary& out)
 {
-    (void)pos;
-
     // H0: Total persistence (sum of death-birth for all components)
     out.h0_persist_sum = 0.0f;
     for (const auto& pair : h0_diagram) {
         out.h0_persist_sum += pair.persistence();
     }
 
-    // H1: Tension (sum of persistence for all loops)
+    // H1: Tension (persistence-weighted sum of loops)
     out.h1_tension = 0.0f;
     out.h1_loop_count = 0.0f;
+    float weighted_tension = 0.0f;
     for (const auto& pair : h1_diagram) {
-        if (pair.persistence() > 0.01f) {  // Filter noise
-            out.h1_tension += pair.persistence();
+        float persist = pair.persistence();
+        if (persist > 0.01f) {  // Filter noise
+            out.h1_tension += persist;
             out.h1_loop_count += 1.0f;
+            // Weight by persistence (more persistent = more important)
+            weighted_tension += persist * persist;
         }
     }
+    // Normalize weighted tension
+    if (out.h1_loop_count > 0) {
+        weighted_tension /= out.h1_loop_count;
+    }
+    out.h1_tension = weighted_tension;  // Use persistence-weighted version
 
     // H0 consistency: ratio of long-lived components to total
     int long_lived = 0;
@@ -433,6 +495,30 @@ void PersistenceEngine::compute_cohomology_scalars(
     }
     out.h0_consistency = (total > 0) ?
         static_cast<float>(long_lived) / static_cast<float>(total) : 0.0f;
+
+    // Additional chess-specific scalars (stored in persistence image slots)
+    // We'll encode these as the first few values of the persistence image
+
+    // Count pieces in each color for normalization
+    int white_pieces = core::popcount(pos.pieces(core::Color::White));
+    int black_pieces = core::popcount(pos.pieces(core::Color::Black));
+    float piece_count_norm = static_cast<float>(white_pieces + black_pieces);
+
+    // Average persistence per component (structural stability)
+    float avg_h0_persist = (total > 0) ? out.h0_persist_sum / static_cast<float>(total) : 0.0f;
+
+    // Max persistence (most stable structure)
+    float max_h0_persist = 0.0f;
+    for (const auto& pair : h0_diagram) {
+        max_h0_persist = std::max(max_h0_persist, pair.persistence());
+    }
+
+    // Store additional features in the first slots of persistence image
+    // These will be extracted separately
+    out.persist_image[0] = avg_h0_persist;
+    out.persist_image[1] = max_h0_persist;
+    out.persist_image[2] = piece_count_norm / 32.0f;  // Normalized
+    out.persist_image[3] = out.h1_loop_count / 10.0f;  // Normalized
 }
 
 //==============================================================================
