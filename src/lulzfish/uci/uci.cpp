@@ -451,6 +451,24 @@ void loop() {
                 std::cout << ' ' << feats[i];
             }
             std::cout << "\n";
+        } else if (tokens[0] == "features_with_topo") {
+            // Debug: dump the 128-d feature vector (64 base + 64 topological)
+            // for the current position. Used by train_topo_residual.py.
+            if (!position_set) {
+                current_position.set_startpos();
+                position_set = true;
+            }
+            // Ensure topology is computed
+            const_cast<lulzfish::eval::graph::PositionGraph&>(
+                current_position.graph()).ensure_topology(current_position);
+
+            std::array<float, lulzfish::eval::graph::FEATURES_WITH_TOPO_TOTAL> feats;
+            lulzfish::eval::graph::extract_features_with_topo(current_position, feats);
+            std::cout << "features_with_topo";
+            for (std::size_t i = 0; i < feats.size(); ++i) {
+                std::cout << ' ' << feats[i];
+            }
+            std::cout << "\n";
         } else if (tokens[0] == "nnueeval") {
             // Debug: NNUE static eval (cp, side-to-move POV) for the current
             // position. Used by tools/rl/nnue_parity.py to verify C++/torch match.

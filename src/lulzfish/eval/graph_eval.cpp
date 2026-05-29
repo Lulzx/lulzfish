@@ -1011,11 +1011,14 @@ void extract_features(const Position& pos,
 
 void extract_features_with_topo(const Position& pos,
                                  std::array<float, FEATURES_WITH_TOPO_TOTAL>& features) {
+    // Layout: [white_base(32) | black_base(32) | white_topo(64) | black_topo(64)]
+    // Total: 192 features
+
     // First extract the base 64 features
     std::array<float, FEATURES_TOTAL> base_features;
     extract_features(pos, base_features);
 
-    // Copy base features
+    // Copy base features (first 64)
     for (size_t i = 0; i < FEATURES_TOTAL; ++i) {
         features[i] = base_features[i];
     }
@@ -1027,16 +1030,14 @@ void extract_features_with_topo(const Position& pos,
 
         sheaftop::extract_features(pos.graph().topo_summary(), white_topo, black_topo);
 
-        // White perspective: base features + white topological features
-        size_t white_base = 0;
+        // White topological features start at index 64
         for (size_t i = 0; i < sheaftop::TOPO_FEATURE_DIM; ++i) {
-            features[FEATURES_TOTAL + white_base + i] = white_topo[i];
+            features[FEATURES_TOTAL + i] = white_topo[i];
         }
 
-        // Black perspective: base features + black topological features
-        size_t black_base = FEATURES_WITH_TOPO_PER_COLOR;
+        // Black topological features start at index 128
         for (size_t i = 0; i < sheaftop::TOPO_FEATURE_DIM; ++i) {
-            features[FEATURES_TOTAL + black_base + i] = black_topo[i];
+            features[FEATURES_TOTAL + sheaftop::TOPO_FEATURE_DIM + i] = black_topo[i];
         }
     } else {
         // Zero out topological features when disabled
